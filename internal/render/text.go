@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
+	"github.com/zhangyoujun/agent-canon/internal/security"
 )
 
 func ScanText(writer io.Writer, report model.ScanReport) error {
@@ -168,6 +169,89 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 func ResolveText(writer io.Writer, conflictID string, decision model.ResolutionDecision, resolutionID string) error {
 	out := textWriter{writer: writer}
 	return out.line("resolved %s with %s as %s", conflictID, decision, resolutionID)
+}
+
+type ApplyTextReport struct {
+	Target       string
+	Project      string
+	Mode         string
+	BackupDir    string
+	ManifestPath string
+	Changes      []model.ApplyFileChange
+	Warnings     []model.Warning
+}
+
+func ApplyText(writer io.Writer, report ApplyTextReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon apply %s: %s", report.Target, report.Mode); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	create, modify, noop := applyActionCounts(report.Changes)
+	if err := out.line("Summary: create=%d modify=%d noop=%d warnings=%d", create, modify, noop, len(report.Warnings)); err != nil {
+		return err
+	}
+	if report.BackupDir != "" {
+		if err := out.line("Backup: %s", report.BackupDir); err != nil {
+			return err
+		}
+	}
+	if report.ManifestPath != "" {
+		if err := out.line("Manifest: %s", report.ManifestPath); err != nil {
+			return err
+		}
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Changed files:"); err != nil {
+		return err
+	}
+	if len(report.Changes) == 0 {
+		if err := out.line("- none"); err != nil {
+			return err
+		}
+	}
+	for _, change := range report.Changes {
+		if err := out.line("- %s [%s] %s", change.Action, change.Scope, change.Path); err != nil {
+			return err
+		}
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyActionCounts(changes []model.ApplyFileChange) (int, int, int) {
+	create := 0
+	modify := 0
+	noop := 0
+	for _, change := range changes {
+		switch change.Action {
+		case model.ApplyActionCreate:
+			create++
+		case model.ApplyActionModify:
+			modify++
+		case model.ApplyActionNoop:
+			noop++
+		}
+	}
+	return create, modify, noop
 }
 
 func actionOrder(operations []model.Operation) []string {

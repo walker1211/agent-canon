@@ -40,7 +40,7 @@ func TestParseRejectsMissingAndUnknownCommand(t *testing.T) {
 		args []string
 	}{
 		{name: "missing", args: []string{}},
-		{name: "unknown", args: []string{"apply"}},
+		{name: "unknown", args: []string{"unknown"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse(tc.args, root, root)
@@ -223,6 +223,69 @@ func TestParseRejectsConflictsUnexpectedArg(t *testing.T) {
 	}
 	if ExitCode(err) != 1 {
 		t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+	}
+}
+
+func TestParseAcceptsValidApplyTargetsAndFlags(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name        string
+		args        []string
+		applyTarget string
+		dryRun      bool
+		yes         bool
+		global      bool
+	}{
+		{name: "codex", args: []string{"apply", "codex", "--project", root}, applyTarget: "codex"},
+		{name: "codex dry run", args: []string{"apply", "codex", "--dry-run", "--project", root}, applyTarget: "codex", dryRun: true},
+		{name: "codex yes", args: []string{"apply", "codex", "--yes", "--project", root}, applyTarget: "codex", yes: true},
+		{name: "codex global yes", args: []string{"apply", "codex", "--global", "--yes", "--project", root}, applyTarget: "codex", yes: true, global: true},
+		{name: "claude", args: []string{"apply", "claude", "--project", root}, applyTarget: "claude"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, root, root)
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if opts.Command != "apply" {
+				t.Fatalf("Command = %q, want apply", opts.Command)
+			}
+			if opts.ApplyTarget != tc.applyTarget {
+				t.Fatalf("ApplyTarget = %q, want %q", opts.ApplyTarget, tc.applyTarget)
+			}
+			if opts.DryRun != tc.dryRun {
+				t.Fatalf("DryRun = %v, want %v", opts.DryRun, tc.dryRun)
+			}
+			if opts.Yes != tc.yes {
+				t.Fatalf("Yes = %v, want %v", opts.Yes, tc.yes)
+			}
+			if opts.Global != tc.global {
+				t.Fatalf("Global = %v, want %v", opts.Global, tc.global)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidApplyForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing target", args: []string{"apply", "--project", root}},
+		{name: "unsupported target", args: []string{"apply", "other", "--project", root}},
+		{name: "extra arg", args: []string{"apply", "codex", "extra", "--project", root}},
+		{name: "out", args: []string{"apply", "codex", "--out", "preview", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
 	}
 }
 

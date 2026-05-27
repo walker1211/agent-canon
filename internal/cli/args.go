@@ -9,10 +9,9 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is a migration inventory, plan, sync, conflict, and preview export tool.
+const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, and apply tool.
 
-Write boundary: it never writes Claude or Codex configuration directories.
-scan and conflicts are read-only; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon.
+Write boundary: scan and conflicts are read-only; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation.
 
 Usage:
   agent-canon scan [flags]
@@ -24,6 +23,8 @@ Usage:
   agent-canon resolve <conflict-id> --theirs
   agent-canon resolve <conflict-id> --accept-suggestion
   agent-canon resolve <conflict-id> --manual <value>
+  agent-canon apply codex [flags]
+  agent-canon apply claude [flags]
 
 Commands:
   scan          Read-only inventory of Claude and Codex resources
@@ -32,6 +33,8 @@ Commands:
   sync          Sync claude to codex metadata; writes only project .agent-canon
   conflicts     Read-only conflict listing
   resolve       Resolve one conflict; writes only project .agent-canon
+  apply codex   Apply Codex target files after conflict checks, backup, and confirmation
+  apply claude  Unsupported in agent-canon; Codex -> Claude import is not implemented yet
 
 Flags:
   --from string          source tool; currently accepts only claude (default "claude")
@@ -42,6 +45,9 @@ Flags:
   --format string        scan/plan/sync/conflicts output format: text or json (default "text")
   --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
   --include-memory       scan memory indexes and candidates only; does not migrate content
+  --dry-run              apply codex: show planned changes without writing
+  --yes                  apply codex: skip interactive confirmation
+  --global               apply codex: allow writes under --codex-home
 `
 
 type Options struct {
@@ -52,6 +58,7 @@ type Options struct {
 	ConflictID      string
 	ResolveDecision string
 	ManualValue     string
+	ApplyTarget     string
 	From            string
 	To              string
 	Project         string
@@ -60,6 +67,9 @@ type Options struct {
 	Format          string
 	Out             string
 	IncludeMemory   bool
+	DryRun          bool
+	Yes             bool
+	Global          bool
 	Warnings        []string
 }
 
@@ -90,7 +100,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "scan" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" {
+	if command != "scan" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
@@ -98,6 +108,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	syncSource := ""
 	syncTarget := ""
 	conflictID := ""
+	applyTarget := ""
 	flagArgs := args[1:]
 	switch command {
 	case "export":
@@ -125,6 +136,15 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		}
 		conflictID = flagArgs[0]
 		flagArgs = flagArgs[1:]
+	case "apply":
+		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
+			return Options{}, usageError{message: "apply requires target codex or claude", code: 1}
+		}
+		applyTarget = flagArgs[0]
+		if applyTarget != "codex" && applyTarget != "claude" {
+			return Options{}, usageError{message: fmt.Sprintf("unsupported apply target %q", applyTarget), code: 1}
+		}
+		flagArgs = flagArgs[1:]
 	}
 
 	defaults := Options{
@@ -133,6 +153,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		SyncSource:   syncSource,
 		SyncTarget:   syncTarget,
 		ConflictID:   conflictID,
+		ApplyTarget:  applyTarget,
 		From:         "claude",
 		To:           "codex",
 		Project:      cwd,
@@ -152,6 +173,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.StringVar(&opts.Format, "format", opts.Format, "output format")
 	flags.StringVar(&opts.Out, "out", opts.Out, "plan output path")
 	flags.BoolVar(&opts.IncludeMemory, "include-memory", opts.IncludeMemory, "include memory candidates")
+	flags.BoolVar(&opts.DryRun, "dry-run", opts.DryRun, "show planned apply changes without writing")
+	flags.BoolVar(&opts.Yes, "yes", opts.Yes, "skip apply confirmation")
+	flags.BoolVar(&opts.Global, "global", opts.Global, "allow apply writes under --codex-home")
 	resolveOurs := false
 	resolveTheirs := false
 	resolveAcceptSuggestion := false
@@ -185,6 +209,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		if opts.Out == "" {
 			return Options{}, usageError{message: "export codex requires --out", code: 1}
 		}
+	}
+	if err := validateApplyFlags(opts.Command, flags); err != nil {
+		return Options{}, err
 	}
 	if err := validateResolveDecision(opts.Command, flags, &opts); err != nil {
 		return Options{}, err
@@ -266,6 +293,18 @@ func flagWasSet(flags *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+func validateApplyFlags(command string, flags *flag.FlagSet) error {
+	if command == "apply" {
+		return nil
+	}
+	for _, name := range []string{"dry-run", "yes", "global"} {
+		if flagWasSet(flags, name) {
+			return usageError{message: fmt.Sprintf("--%s is supported only for apply codex", name), code: 1}
+		}
+	}
+	return nil
 }
 
 func validateResolveDecision(command string, flags *flag.FlagSet, opts *Options) error {

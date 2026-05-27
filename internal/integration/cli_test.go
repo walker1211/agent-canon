@@ -374,6 +374,97 @@ func TestSecretFixtureSyncDoesNotLeakToCLIOutputsOrState(t *testing.T) {
 	}
 }
 
+func TestApplyCodexDryRunAndYesRoundTrip(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	runSyncCommand(t, fixture)
+	codexHomeBefore := snapshotFiles(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("dry-run exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon apply codex: dry-run") || !strings.Contains(stdout.String(), filepath.Join(fixture.project, "AGENTS.md")) {
+		t.Fatalf("dry-run stdout missing planned project write: %q", stdout.String())
+	}
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"apply", "codex", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("apply exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertFileExists(t, filepath.Join(fixture.project, "AGENTS.md"))
+	if !reflect.DeepEqual(snapshotFiles(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("apply codex without --global modified Codex home")
+	}
+	workspaceRoot := filepath.Join(fixture.project, ".agent-canon")
+	assertFileExists(t, onlyFileInDir(t, filepath.Join(workspaceRoot, "rollback")))
+	state := readSyncStateReport(t, filepath.Join(workspaceRoot, "sync-state.json"))
+	if state.Summary.OpenConflicts != 0 || state.Summary.Diffs != 0 {
+		t.Fatalf("apply refreshed sync summary = %#v", state.Summary)
+	}
+	baseCodex := readFileString(t, filepath.Join(workspaceRoot, "base", "codex.snapshot.json"))
+	if !strings.Contains(baseCodex, filepath.Join(fixture.project, "AGENTS.md")) {
+		t.Fatalf("base codex snapshot missing applied project target: %q", baseCodex)
+	}
+}
+
+func TestApplyCodexBacksUpExistingProjectTarget(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	runSyncCommand(t, fixture)
+	var stdout, stderr bytes.Buffer
+	code := app.Run([]string{"apply", "codex", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("initial apply exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	originalAgents := readFileString(t, filepath.Join(fixture.project, "AGENTS.md"))
+	mustWriteFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "# Project Instructions\n\nUpdated after initial apply.\n")
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"apply", "codex", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("second apply exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	backup := onlyFileInDir(t, filepath.Join(fixture.project, ".agent-canon", "backups", latestDirName(t, filepath.Join(fixture.project, ".agent-canon", "backups")), "project"))
+	if readFileString(t, backup) != originalAgents {
+		t.Fatalf("backup contents did not preserve original AGENTS.md")
+	}
+}
+
+func TestApplyClaudeUnsupportedIntegrationWritesNothing(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "apply claude is unsupported in agent-canon") {
+		t.Fatalf("stderr missing unsupported message: %q", stderr.String())
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestSecretFixtureApplyDoesNotLeakToCLIOutputsOrState(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	runSyncCommand(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "apply stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "apply stderr")
+	if code != 0 {
+		t.Fatalf("apply exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	for _, rel := range previewRelativePaths(t, filepath.Join(fixture.project, ".agent-canon")) {
+		assertDoesNotContainSecret(t, readFileString(t, filepath.Join(fixture.project, ".agent-canon", rel)), filepath.Join(".agent-canon", rel))
+	}
+}
+
 type fixturePaths struct {
 	home       string
 	root       string
@@ -432,6 +523,65 @@ func copyDir(t *testing.T, source string, target string) {
 	}); err != nil {
 		t.Fatalf("copy fixture %s to %s: %v", source, target, err)
 	}
+}
+
+func runSyncCommand(t *testing.T, fixture fixturePaths) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func readSyncStateReport(t *testing.T, path string) model.SyncStateReport {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read sync state: %v", err)
+	}
+	var state model.SyncStateReport
+	if err := json.Unmarshal(payload, &state); err != nil {
+		t.Fatalf("unmarshal sync state: %v\n%s", err, string(payload))
+	}
+	return state
+}
+
+func latestDirName(t *testing.T, root string) string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read directory %s: %v", root, err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		t.Fatalf("%s has no directories", root)
+	}
+	return names[len(names)-1]
+}
+
+func onlyFileInDir(t *testing.T, root string) string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read directory %s: %v", root, err)
+	}
+	var files []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			files = append(files, filepath.Join(root, entry.Name()))
+		}
+	}
+	if len(files) != 1 {
+		t.Fatalf("%s file count = %d, want 1", root, len(files))
+	}
+	return files[0]
 }
 
 func snapshotFiles(t *testing.T, root string) map[string]string {

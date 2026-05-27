@@ -7,6 +7,8 @@ const (
 	CanonSnapshotSchemaVersion      = "agent-canon.canon-snapshot.v1"
 	SyncStateSchemaVersion          = "agent-canon.sync-state.v1"
 	LearnedResolutionsSchemaVersion = "agent-canon.learned-resolutions.v1"
+	ApplyPlanSchemaVersion          = "agent-canon.apply-plan.v1"
+	RollbackManifestSchemaVersion   = "agent-canon.rollback-manifest.v1"
 )
 
 type Status string
@@ -79,6 +81,14 @@ const (
 	ResolutionDecisionTheirs     ResolutionDecision = "theirs"
 	ResolutionDecisionSuggestion ResolutionDecision = "suggestion"
 	ResolutionDecisionManual     ResolutionDecision = "manual"
+)
+
+type ApplyAction string
+
+const (
+	ApplyActionCreate ApplyAction = "create"
+	ApplyActionModify ApplyAction = "modify"
+	ApplyActionNoop   ApplyAction = "noop"
 )
 
 type Resource struct {
@@ -239,4 +249,25 @@ type LearnedResolutionReport struct {
 	SchemaVersion string              `json:"schemaVersion"`
 	Project       string              `json:"project"`
 	Resolutions   []LearnedResolution `json:"resolutions"`
+}
+
+type ApplyFileChange struct {
+	Path       string      `json:"path"`
+	Scope      Scope       `json:"scope"`
+	Action     ApplyAction `json:"action"`
+	BackupPath string      `json:"backupPath,omitempty"`
+	BeforeHash string      `json:"beforeHash,omitempty"`
+	AfterHash  string      `json:"afterHash,omitempty"`
+	Verified   bool        `json:"verified"`
+}
+
+type RollbackManifestReport struct {
+	SchemaVersion string            `json:"schemaVersion"`
+	CreatedAt     string            `json:"createdAt"`
+	Project       string            `json:"project"`
+	Target        string            `json:"target"`
+	BackupDir     string            `json:"backupDir"`
+	Changes       []ApplyFileChange `json:"changes"`
+	BaseSnapshots map[string]string `json:"baseSnapshots"`
+	Warnings      []Warning         `json:"warnings"`
 }

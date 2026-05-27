@@ -424,6 +424,65 @@ func TestLearnedResolutionOmitsEmptyValue(t *testing.T) {
 	assertMissingKey(t, got, "value")
 }
 
+func TestRollbackManifestReportMarshalsApplyChanges(t *testing.T) {
+	report := RollbackManifestReport{
+		SchemaVersion: RollbackManifestSchemaVersion,
+		CreatedAt:     "2026-05-27T10:05:00Z",
+		Project:       "/repo",
+		Target:        "codex",
+		BackupDir:     "/repo/.agent-canon/backups/apply-001",
+		Changes: []ApplyFileChange{
+			{
+				Path:       "/repo/AGENTS.md",
+				Scope:      ScopeProject,
+				Action:     ApplyActionModify,
+				BackupPath: "/repo/.agent-canon/backups/apply-001/project/AGENTS.md",
+				BeforeHash: "sha256:before",
+				AfterHash:  "sha256:after",
+				Verified:   true,
+			},
+		},
+		BaseSnapshots: map[string]string{"claude": "sha256:claude", "codex": "sha256:codex"},
+		Warnings:      []Warning{{Code: "apply", Message: "applied codex"}},
+	}
+
+	got := marshalToMap(t, report)
+
+	assertString(t, got, "schemaVersion", "agent-canon.rollback-manifest.v1")
+	assertString(t, got, "createdAt", "2026-05-27T10:05:00Z")
+	assertString(t, got, "project", "/repo")
+	assertString(t, got, "target", "codex")
+	assertString(t, got, "backupDir", "/repo/.agent-canon/backups/apply-001")
+	assertHasKey(t, got, "changes")
+	assertHasKey(t, got, "baseSnapshots")
+	assertHasKey(t, got, "warnings")
+
+	change := got["changes"].([]any)[0].(map[string]any)
+	assertString(t, change, "path", "/repo/AGENTS.md")
+	assertString(t, change, "scope", "project")
+	assertString(t, change, "action", "modify")
+	assertString(t, change, "backupPath", "/repo/.agent-canon/backups/apply-001/project/AGENTS.md")
+	assertString(t, change, "beforeHash", "sha256:before")
+	assertString(t, change, "afterHash", "sha256:after")
+	assertBool(t, change, "verified", true)
+}
+
+func TestApplyFileChangeOmitsEmptyBackupAndBeforeHash(t *testing.T) {
+	change := ApplyFileChange{
+		Path:      "/repo/.codex/config.toml",
+		Scope:     ScopeProject,
+		Action:    ApplyActionCreate,
+		AfterHash: "sha256:after",
+		Verified:  true,
+	}
+
+	got := marshalToMap(t, change)
+
+	assertString(t, got, "action", "create")
+	assertMissingKey(t, got, "backupPath")
+	assertMissingKey(t, got, "beforeHash")
+}
+
 func TestModelEnumsMarshalExpectedValues(t *testing.T) {
 	enums := struct {
 		Added              DiffKind           `json:"added"`

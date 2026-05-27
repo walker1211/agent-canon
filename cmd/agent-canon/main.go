@@ -15,5 +15,5 @@ func main() {
 	if err != nil {
 		homeDir = "."
 	}
-	os.Exit(app.Run(os.Args[1:], cwd, homeDir, os.Stdout, os.Stderr))
+	os.Exit(app.RunWithIO(os.Args[1:], cwd, homeDir, os.Stdin, os.Stdout, os.Stderr))
 }

@@ -22,6 +22,8 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 	root := filepath.Join(project, ".agent-canon")
 	base := filepath.Join(root, "base")
 	resolutions := filepath.Join(root, "resolutions")
+	backups := filepath.Join(root, "backups")
+	rollback := filepath.Join(root, "rollback")
 	got := map[string]string{
 		"Project":            layout.Project,
 		"Root":               layout.Root,
@@ -32,6 +34,8 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"SyncState":          layout.SyncState,
 		"ResolutionsDir":     layout.ResolutionsDir,
 		"LearnedResolutions": layout.LearnedResolutions,
+		"BackupsDir":         layout.BackupsDir,
+		"RollbackDir":        layout.RollbackDir,
 	}
 	want := map[string]string{
 		"Project":            project,
@@ -43,6 +47,8 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"SyncState":          filepath.Join(root, "sync-state.json"),
 		"ResolutionsDir":     resolutions,
 		"LearnedResolutions": filepath.Join(resolutions, "learned-resolutions.json"),
+		"BackupsDir":         backups,
+		"RollbackDir":        rollback,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Layout paths = %#v, want %#v", got, want)
@@ -84,6 +90,87 @@ func TestSaveSyncStateForcesExpectedModesUnderRestrictiveUmask(t *testing.T) {
 
 	assertDirMode(t, layout.Root, 0o755)
 	assertFileMode(t, layout.SyncState, 0o644)
+}
+
+func TestSaveRollbackManifestWritesExpectedFile(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	path, err := layout.SaveRollbackManifest("apply-001", map[string]string{"target": "codex"})
+	if err != nil {
+		t.Fatalf("SaveRollbackManifest returned error: %v", err)
+	}
+
+	wantPath := filepath.Join(layout.RollbackDir, "apply-001.json")
+	if path != wantPath {
+		t.Fatalf("rollback manifest path = %q, want %q", path, wantPath)
+	}
+	assertDirMode(t, layout.Root, 0o755)
+	assertDirMode(t, layout.RollbackDir, 0o755)
+	assertFileMode(t, wantPath, 0o644)
+	assertFileContents(t, wantPath, "{\n  \"target\": \"codex\"\n}\n")
+}
+
+func TestBackupDirReturnsSafeProjectLocalDirectory(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	path, err := layout.BackupDir("apply-001")
+	if err != nil {
+		t.Fatalf("BackupDir returned error: %v", err)
+	}
+	want := filepath.Join(layout.BackupsDir, "apply-001")
+	if path != want {
+		t.Fatalf("backup dir = %q, want %q", path, want)
+	}
+}
+
+func TestWorkspaceDynamicNamesRejectUnsafeSegments(t *testing.T) {
+	layout, err := workspace.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	for _, name := range []string{"", ".", "..", "../escape", "nested/name"} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := layout.BackupDir(name); err == nil {
+				t.Fatalf("BackupDir(%q) returned nil error", name)
+			}
+			if _, err := layout.SaveRollbackManifest(name, map[string]string{"target": "codex"}); err == nil {
+				t.Fatalf("SaveRollbackManifest(%q) returned nil error", name)
+			}
+		})
+	}
+}
+
+func TestSaveRollbackManifestFailsWhenRollbackDirSymlinkEscapesProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := os.MkdirAll(layout.Root, 0o755); err != nil {
+		t.Fatalf("create workspace root: %v", err)
+	}
+	if err := os.Symlink(outside, layout.RollbackDir); err != nil {
+		t.Fatalf("create rollback symlink: %v", err)
+	}
+
+	_, err = layout.SaveRollbackManifest("apply-001", map[string]string{"target": "codex"})
+	if err == nil {
+		t.Fatalf("SaveRollbackManifest returned nil error for escaping rollback symlink")
+	}
+	if !strings.Contains(err.Error(), "project") {
+		t.Fatalf("error missing project boundary context: %v", err)
+	}
+	assertPathMissing(t, filepath.Join(outside, "apply-001.json"))
 }
 
 func TestLoadSyncStateReturnsErrNotFoundForMissingFile(t *testing.T) {

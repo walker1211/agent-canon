@@ -27,6 +27,8 @@ type Layout struct {
 	SyncState          string
 	ResolutionsDir     string
 	LearnedResolutions string
+	BackupsDir         string
+	RollbackDir        string
 
 	paths layoutPaths
 }
@@ -41,6 +43,8 @@ type layoutPaths struct {
 	SyncState          string
 	ResolutionsDir     string
 	LearnedResolutions string
+	BackupsDir         string
+	RollbackDir        string
 }
 
 func New(project string) (Layout, error) {
@@ -58,6 +62,8 @@ func New(project string) (Layout, error) {
 		SyncState:          paths.SyncState,
 		ResolutionsDir:     paths.ResolutionsDir,
 		LearnedResolutions: paths.LearnedResolutions,
+		BackupsDir:         paths.BackupsDir,
+		RollbackDir:        paths.RollbackDir,
 		paths:              paths,
 	}, nil
 }
@@ -76,6 +82,8 @@ func newLayoutPaths(project string) (layoutPaths, error) {
 	root := filepath.Join(cleanProject, ".agent-canon")
 	base := filepath.Join(root, "base")
 	resolutions := filepath.Join(root, "resolutions")
+	backups := filepath.Join(root, "backups")
+	rollback := filepath.Join(root, "rollback")
 	return layoutPaths{
 		Project:            cleanProject,
 		Root:               root,
@@ -86,6 +94,8 @@ func newLayoutPaths(project string) (layoutPaths, error) {
 		SyncState:          filepath.Join(root, "sync-state.json"),
 		ResolutionsDir:     resolutions,
 		LearnedResolutions: filepath.Join(resolutions, "learned-resolutions.json"),
+		BackupsDir:         backups,
+		RollbackDir:        rollback,
 	}, nil
 }
 
@@ -129,11 +139,52 @@ func (l Layout) LoadLearnedResolutions(dest any) error {
 	return l.readJSON(l.LearnedResolutions, l.paths.LearnedResolutions, dest)
 }
 
+func (l Layout) BackupDir(name string) (string, error) {
+	if err := validateWorkspaceName(name); err != nil {
+		return "", err
+	}
+	known, err := l.canonicalPaths()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(known.BackupsDir, name)
+	if err := l.ensurePathInsideProject(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (l Layout) RollbackManifestPath(name string) (string, error) {
+	if err := validateWorkspaceName(name); err != nil {
+		return "", err
+	}
+	known, err := l.canonicalPaths()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(known.RollbackDir, name+".json")
+	if err := l.ensurePathInsideProject(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (l Layout) SaveRollbackManifest(name string, value any) (string, error) {
+	path, err := l.RollbackManifestPath(name)
+	if err != nil {
+		return "", err
+	}
+	return path, l.writeJSONFile(path, value)
+}
+
 func (l Layout) writeJSON(path string, canonicalPath string, value any) error {
 	if err := l.validateKnownPath(path, canonicalPath); err != nil {
 		return err
 	}
-	path = canonicalPath
+	return l.writeJSONFile(canonicalPath, value)
+}
+
+func (l Layout) writeJSONFile(path string, value any) error {
 	if err := l.ensurePathInsideProject(path); err != nil {
 		return err
 	}
@@ -181,6 +232,16 @@ func (l Layout) readJSON(path string, canonicalPath string, dest any) error {
 	}
 	if err := json.Unmarshal(data, dest); err != nil {
 		return fmt.Errorf("unmarshal workspace JSON %s: %w", path, err)
+	}
+	return nil
+}
+
+func validateWorkspaceName(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("workspace name %q is not safe", name)
+	}
+	if filepath.Clean(name) != name || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return fmt.Errorf("workspace name %q is not safe", name)
 	}
 	return nil
 }

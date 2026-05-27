@@ -11,7 +11,11 @@ import (
 )
 
 func Run(args []string, cwd string, homeDir string, stdout io.Writer, stderr io.Writer) int {
-	if err := RunE(args, cwd, homeDir, stdout, stderr); err != nil {
+	return RunWithIO(args, cwd, homeDir, nil, stdout, stderr)
+}
+
+func RunWithIO(args []string, cwd string, homeDir string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+	if err := RunEWithIO(args, cwd, homeDir, stdin, stdout, stderr); err != nil {
 		if reportErr := writeLine(stderr, err.Error()); reportErr != nil {
 			return 1
 		}
@@ -21,6 +25,11 @@ func Run(args []string, cwd string, homeDir string, stdout io.Writer, stderr io.
 }
 
 func RunE(args []string, cwd string, homeDir string, stdout io.Writer, stderr io.Writer) error {
+	return RunEWithIO(args, cwd, homeDir, nil, stdout, stderr)
+}
+
+func RunEWithIO(args []string, cwd string, homeDir string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+	_ = stdin
 	opts, err := cli.Parse(args, cwd, homeDir)
 	if err != nil {
 		return withExitCode(cli.ExitCode(err), "%w", err)
@@ -50,6 +59,9 @@ func RunE(args []string, cwd string, homeDir string, stdout io.Writer, stderr io
 	}
 	if opts.Command == "resolve" {
 		return runResolve(opts, stdout)
+	}
+	if opts.Command == "apply" {
+		return runApply(opts, stdin, stdout)
 	}
 	return withExitCode(1, "unknown command %q", opts.Command)
 }

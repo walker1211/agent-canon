@@ -115,6 +115,21 @@ func TestRunReturnsExitOneWhenStdoutWriteFails(t *testing.T) {
 	}
 }
 
+func TestRunWithIOAcceptsStdinAndPreservesHelpBehavior(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := app.RunWithIO([]string{"help"}, "/definitely/missing/cwd", "/definitely/missing/home", strings.NewReader("yes\n"), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon apply codex") {
+		t.Fatalf("help output missing apply command: %q", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 type fixturePaths struct {
 	home       string
 	project    string
