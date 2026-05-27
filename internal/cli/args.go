@@ -9,20 +9,29 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is a migration inventory, plan, and preview export tool.
+const helpText = `agent-canon is a migration inventory, plan, sync, conflict, and preview export tool.
 
-agent-canon preview write boundary: it never writes Claude or Codex configuration directories.
-The only supported writes are that only plan --out writes a JSON plan file and only export codex --out writes a Codex preview directory.
+Write boundary: it never writes Claude or Codex configuration directories.
+scan and conflicts are read-only; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon.
 
 Usage:
   agent-canon scan [flags]
   agent-canon plan [flags]
   agent-canon export codex [flags]
+  agent-canon sync claude codex [flags]
+  agent-canon conflicts [flags]
+  agent-canon resolve <conflict-id> --ours
+  agent-canon resolve <conflict-id> --theirs
+  agent-canon resolve <conflict-id> --accept-suggestion
+  agent-canon resolve <conflict-id> --manual <value>
 
 Commands:
   scan          Read-only inventory of Claude and Codex resources
-  plan          Read-only migration plan generation
+  plan          Read-only migration plan generation except when --out writes a JSON plan file
   export codex  Write a Codex preview directory only when --out is set
+  sync          Sync claude to codex metadata; writes only project .agent-canon
+  conflicts     Read-only conflict listing
+  resolve       Resolve one conflict; writes only project .agent-canon
 
 Flags:
   --from string          source tool; currently accepts only claude (default "claude")
@@ -30,23 +39,28 @@ Flags:
   --project string       project directory (default current working directory)
   --claude-home string   Claude Code home (default ~/.claude)
   --codex-home string    Codex home (default ~/.codex)
-  --format string        scan/plan output format: text or json (default "text")
+  --format string        scan/plan/sync/conflicts output format: text or json (default "text")
   --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
   --include-memory       scan memory indexes and candidates only; does not migrate content
 `
 
 type Options struct {
-	Command       string
-	ExportTarget  string
-	From          string
-	To            string
-	Project       string
-	ClaudeHome    string
-	CodexHome     string
-	Format        string
-	Out           string
-	IncludeMemory bool
-	Warnings      []string
+	Command         string
+	ExportTarget    string
+	SyncSource      string
+	SyncTarget      string
+	ConflictID      string
+	ResolveDecision string
+	ManualValue     string
+	From            string
+	To              string
+	Project         string
+	ClaudeHome      string
+	CodexHome       string
+	Format          string
+	Out             string
+	IncludeMemory   bool
+	Warnings        []string
 }
 
 type usageError struct {
@@ -76,13 +90,17 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "scan" && command != "plan" && command != "export" {
+	if command != "scan" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
 	exportTarget := ""
+	syncSource := ""
+	syncTarget := ""
+	conflictID := ""
 	flagArgs := args[1:]
-	if command == "export" {
+	switch command {
+	case "export":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
 			return Options{}, usageError{message: "export requires target codex", code: 1}
 		}
@@ -91,11 +109,30 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 			return Options{}, usageError{message: fmt.Sprintf("unsupported export target %q", exportTarget), code: 1}
 		}
 		flagArgs = flagArgs[1:]
+	case "sync":
+		if len(flagArgs) < 2 || flagArgs[0] == "" || flagArgs[0][0] == '-' || flagArgs[1] == "" || flagArgs[1][0] == '-' {
+			return Options{}, usageError{message: "sync requires direction claude codex", code: 1}
+		}
+		syncSource = flagArgs[0]
+		syncTarget = flagArgs[1]
+		if syncSource != "claude" || syncTarget != "codex" {
+			return Options{}, usageError{message: "agent-canon supports only sync claude codex", code: 1}
+		}
+		flagArgs = flagArgs[2:]
+	case "resolve":
+		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
+			return Options{}, usageError{message: "resolve requires conflict ID", code: 1}
+		}
+		conflictID = flagArgs[0]
+		flagArgs = flagArgs[1:]
 	}
 
 	defaults := Options{
 		Command:      command,
 		ExportTarget: exportTarget,
+		SyncSource:   syncSource,
+		SyncTarget:   syncTarget,
+		ConflictID:   conflictID,
 		From:         "claude",
 		To:           "codex",
 		Project:      cwd,
@@ -115,6 +152,13 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.StringVar(&opts.Format, "format", opts.Format, "output format")
 	flags.StringVar(&opts.Out, "out", opts.Out, "plan output path")
 	flags.BoolVar(&opts.IncludeMemory, "include-memory", opts.IncludeMemory, "include memory candidates")
+	resolveOurs := false
+	resolveTheirs := false
+	resolveAcceptSuggestion := false
+	flags.BoolVar(&resolveOurs, "ours", false, "resolve conflict using our value")
+	flags.BoolVar(&resolveTheirs, "theirs", false, "resolve conflict using their value")
+	flags.BoolVar(&resolveAcceptSuggestion, "accept-suggestion", false, "resolve conflict using suggested value")
+	flags.StringVar(&opts.ManualValue, "manual", opts.ManualValue, "resolve conflict using manual value")
 	if err := flags.Parse(flagArgs); err != nil {
 		return Options{}, usageError{message: err.Error(), code: 1}
 	}
@@ -128,16 +172,22 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	if opts.Format != "text" && opts.Format != "json" {
 		return Options{}, usageError{message: "--format must be text or json", code: 1}
 	}
-	if opts.Command == "scan" && opts.Out != "" {
+	if opts.Command == "resolve" && flagWasSet(flags, "format") {
+		return Options{}, usageError{message: "--format is not supported for resolve", code: 1}
+	}
+	if opts.Command != "plan" && opts.Command != "export" && opts.Out != "" {
 		return Options{}, usageError{message: "--out is supported only for plan and export codex", code: 1}
 	}
 	if opts.Command == "export" {
 		if flagWasSet(flags, "format") {
-			return Options{}, usageError{message: "--format is not supported for export codex in agent-canon", code: 1}
+			return Options{}, usageError{message: "--format is not supported for export codex", code: 1}
 		}
 		if opts.Out == "" {
 			return Options{}, usageError{message: "export codex requires --out", code: 1}
 		}
+	}
+	if err := validateResolveDecision(opts.Command, flags, &opts); err != nil {
+		return Options{}, err
 	}
 
 	project, err := cleanExistingDir(opts.Project, "--project")
@@ -216,6 +266,41 @@ func flagWasSet(flags *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+func validateResolveDecision(command string, flags *flag.FlagSet, opts *Options) error {
+	decisionCount := 0
+	for _, decision := range []struct {
+		flagName string
+		value    string
+	}{
+		{flagName: "ours", value: "ours"},
+		{flagName: "theirs", value: "theirs"},
+		{flagName: "accept-suggestion", value: "accept-suggestion"},
+		{flagName: "manual", value: "manual"},
+	} {
+		if flagWasSet(flags, decision.flagName) {
+			decisionCount++
+			opts.ResolveDecision = decision.value
+		}
+	}
+
+	if command != "resolve" {
+		if decisionCount > 0 {
+			return usageError{message: "resolve decision flags are supported only for resolve", code: 1}
+		}
+		return nil
+	}
+	if decisionCount == 0 {
+		return usageError{message: "resolve requires exactly one decision flag", code: 1}
+	}
+	if decisionCount > 1 {
+		return usageError{message: "resolve requires exactly one decision flag", code: 1}
+	}
+	if opts.ResolveDecision == "manual" && opts.ManualValue == "" {
+		return usageError{message: "--manual requires a non-empty value", code: 1}
+	}
+	return nil
 }
 
 func validateHome(path string, name string, explicit bool) (string, error) {

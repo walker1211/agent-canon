@@ -285,6 +285,95 @@ func TestSecretFixtureTokenDoesNotLeakToCLIOutputs(t *testing.T) {
 	})
 }
 
+func TestSyncConflictsResolveRoundTripUsesProjectWorkspaceOnly(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	mustWriteFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "shared base\n")
+	mustWriteFile(t, filepath.Join(fixture.project, "AGENTS.md"), "shared base\n")
+	claudeBefore := snapshotFiles(t, fixture.claudeHome)
+	codexBefore := snapshotFiles(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("initial sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertFileExists(t, filepath.Join(fixture.project, ".agent-canon", "base", "claude.snapshot.json"))
+	assertFileExists(t, filepath.Join(fixture.project, ".agent-canon", "sync-state.json"))
+
+	mustWriteFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "ours changed\n")
+	mustWriteFile(t, filepath.Join(fixture.project, "AGENTS.md"), "theirs changed\n")
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("second sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Summary: diffs=1 open=1 resolved=0") {
+		t.Fatalf("sync stdout missing open conflict summary: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"conflicts", "--project", fixture.project}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("conflicts exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "- conflict-001 ContentConflict instruction:project-claude-md") {
+		t.Fatalf("conflicts stdout missing conflict: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"resolve", "conflict-001", "--manual", "merged value", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("resolve exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "resolved conflict-001 with manual as resolution-001") {
+		t.Fatalf("resolve stdout missing confirmation: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"conflicts", "--project", fixture.project, "--format", "json"}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("conflicts json exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var state model.SyncStateReport
+	if err := json.Unmarshal(stdout.Bytes(), &state); err != nil {
+		t.Fatalf("conflicts JSON invalid: %v\n%s", err, stdout.String())
+	}
+	if state.Summary.OpenConflicts != 0 || state.Summary.ResolvedConflicts != 1 {
+		t.Fatalf("resolved summary = %#v", state.Summary)
+	}
+	assertFilesUnchanged(t, fixture.claudeHome, claudeBefore)
+	assertFilesUnchanged(t, fixture.codexHome, codexBefore)
+}
+
+func TestSecretFixtureSyncDoesNotLeakToCLIOutputsOrState(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "sync stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "sync stderr")
+	if code != 0 {
+		t.Fatalf("sync exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	for _, rel := range previewRelativePaths(t, filepath.Join(fixture.project, ".agent-canon")) {
+		assertDoesNotContainSecret(t, readFileString(t, filepath.Join(fixture.project, ".agent-canon", rel)), filepath.Join(".agent-canon", rel))
+	}
+	after := snapshotFiles(t, fixture.root)
+	for rel, beforeContents := range before {
+		if strings.HasPrefix(rel, filepath.Join("project", ".agent-canon")+string(filepath.Separator)) {
+			continue
+		}
+		if after[rel] != beforeContents {
+			t.Fatalf("sync changed non-workspace fixture file %s", rel)
+		}
+	}
+}
+
 type fixturePaths struct {
 	home       string
 	root       string
@@ -303,6 +392,45 @@ func fixturePathsFor(t *testing.T, name string) fixturePaths {
 		project:    filepath.Join(root, "project"),
 		claudeHome: filepath.Join(root, "claude-home"),
 		codexHome:  filepath.Join(root, "codex-home"),
+	}
+}
+
+func tempFixturePathsFor(t *testing.T, name string) fixturePaths {
+	t.Helper()
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	source := filepath.Join(repoRoot, "testdata", name)
+	root := t.TempDir()
+	copyDir(t, source, root)
+	return fixturePaths{
+		home:       root,
+		root:       root,
+		project:    filepath.Join(root, "project"),
+		claudeHome: filepath.Join(root, "claude-home"),
+		codexHome:  filepath.Join(root, "codex-home"),
+	}
+}
+
+func copyDir(t *testing.T, source string, target string) {
+	t.Helper()
+	if err := filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		dest := filepath.Join(target, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(dest, 0o755)
+		}
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dest, payload, 0o644)
+	}); err != nil {
+		t.Fatalf("copy fixture %s to %s: %v", source, target, err)
 	}
 }
 

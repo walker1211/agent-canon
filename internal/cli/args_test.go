@@ -160,6 +160,130 @@ func TestParseRequiresExplicitCustomHomesToExist(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsValidSyncClaudeCodex(t *testing.T) {
+	root := t.TempDir()
+	opts, err := Parse([]string{"sync", "claude", "codex", "--project", root, "--format", "json"}, root, root)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	if opts.Command != "sync" {
+		t.Fatalf("Command = %q, want sync", opts.Command)
+	}
+	if opts.SyncSource != "claude" || opts.SyncTarget != "codex" {
+		t.Fatalf("sync direction = %s -> %s, want claude -> codex", opts.SyncSource, opts.SyncTarget)
+	}
+	if opts.Format != "json" {
+		t.Fatalf("Format = %q, want json", opts.Format)
+	}
+}
+
+func TestParseRejectsInvalidSyncForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing direction", args: []string{"sync", "--project", root}},
+		{name: "reversed direction", args: []string{"sync", "codex", "claude", "--project", root}},
+		{name: "extra arg", args: []string{"sync", "claude", "codex", "extra", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
+func TestParseAcceptsValidConflicts(t *testing.T) {
+	root := t.TempDir()
+	opts, err := Parse([]string{"conflicts", "--project", root, "--format", "json"}, root, root)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	if opts.Command != "conflicts" {
+		t.Fatalf("Command = %q, want conflicts", opts.Command)
+	}
+	if opts.Format != "json" {
+		t.Fatalf("Format = %q, want json", opts.Format)
+	}
+}
+
+func TestParseRejectsConflictsUnexpectedArg(t *testing.T) {
+	root := t.TempDir()
+	_, err := Parse([]string{"conflicts", "unexpected", "--project", root}, root, root)
+	if err == nil {
+		t.Fatal("Parse returned nil error")
+	}
+	if ExitCode(err) != 1 {
+		t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+	}
+}
+
+func TestParseAcceptsValidResolveDecisions(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name        string
+		args        []string
+		decision    string
+		manualValue string
+	}{
+		{name: "ours", args: []string{"resolve", "conflict-1", "--ours", "--project", root}, decision: "ours"},
+		{name: "theirs", args: []string{"resolve", "conflict-1", "--theirs", "--project", root}, decision: "theirs"},
+		{name: "accept suggestion", args: []string{"resolve", "conflict-1", "--accept-suggestion", "--project", root}, decision: "accept-suggestion"},
+		{name: "manual", args: []string{"resolve", "conflict-1", "--manual", "merged value", "--project", root}, decision: "manual", manualValue: "merged value"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, root, root)
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if opts.Command != "resolve" {
+				t.Fatalf("Command = %q, want resolve", opts.Command)
+			}
+			if opts.ConflictID != "conflict-1" {
+				t.Fatalf("ConflictID = %q, want conflict-1", opts.ConflictID)
+			}
+			if opts.ResolveDecision != tc.decision {
+				t.Fatalf("ResolveDecision = %q, want %q", opts.ResolveDecision, tc.decision)
+			}
+			if opts.ManualValue != tc.manualValue {
+				t.Fatalf("ManualValue = %q, want %q", opts.ManualValue, tc.manualValue)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidResolveForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing ID", args: []string{"resolve", "--ours", "--project", root}},
+		{name: "missing decision", args: []string{"resolve", "conflict-1", "--project", root}},
+		{name: "multiple decisions", args: []string{"resolve", "conflict-1", "--ours", "--theirs", "--project", root}},
+		{name: "empty manual", args: []string{"resolve", "conflict-1", "--manual", "", "--project", root}},
+		{name: "explicit format", args: []string{"resolve", "conflict-1", "--ours", "--format", "json", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 	for _, args := range [][]string{
 		{"help"},
@@ -172,8 +296,19 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit code = %d, want 0", code)
 			}
-			if !strings.Contains(stdout.String(), "agent-canon preview write boundary") || !strings.Contains(stdout.String(), "only plan --out writes") || !strings.Contains(stdout.String(), "only export codex --out writes") || !strings.Contains(stdout.String(), "agent-canon export codex [flags]") {
-				t.Fatalf("help output missing preview write boundary or export codex usage: %q", stdout.String())
+			help := stdout.String()
+			for _, want := range []string{
+				"scan and conflicts are read-only",
+				"plan --out writes",
+				"export codex --out writes",
+				"sync/resolve write only project .agent-canon",
+				"agent-canon sync claude codex [flags]",
+				"agent-canon conflicts [flags]",
+				"agent-canon resolve <conflict-id>",
+			} {
+				if !strings.Contains(help, want) {
+					t.Fatalf("help output missing %q: %q", want, help)
+				}
 			}
 			if stderr.String() != "" {
 				t.Fatalf("stderr = %q, want empty", stderr.String())

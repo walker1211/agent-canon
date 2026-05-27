@@ -110,6 +110,66 @@ func PlanText(writer io.Writer, report model.PlanReport) error {
 	return nil
 }
 
+func SyncText(writer io.Writer, report model.SyncStateReport, workspaceRoot string, statePath string) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon sync: %s -> %s", report.Source, report.Target); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Workspace: %s", workspaceRoot); err != nil {
+		return err
+	}
+	if err := out.line("State: %s", statePath); err != nil {
+		return err
+	}
+	return out.line("Summary: diffs=%d open=%d resolved=%d warnings=%d", report.Summary.Diffs, report.Summary.OpenConflicts, report.Summary.ResolvedConflicts, report.Summary.Warnings)
+}
+
+func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon conflicts: %s -> %s", report.Source, report.Target); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Summary: open=%d resolved=%d diffs=%d warnings=%d", report.Summary.OpenConflicts, report.Summary.ResolvedConflicts, report.Summary.Diffs, report.Summary.Warnings); err != nil {
+		return err
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Open conflicts:"); err != nil {
+		return err
+	}
+	found := false
+	for _, conflict := range report.Conflicts {
+		if conflict.Status != model.ConflictStatusOpen {
+			continue
+		}
+		found = true
+		if err := out.line("- %s %s %s [%s]", conflict.ID, conflict.Kind, conflict.ResourceID, conflict.ResourceKind); err != nil {
+			return err
+		}
+	}
+	if !found {
+		if err := out.line("- none"); err != nil {
+			return err
+		}
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	return out.line("Resolved conflicts: %d", report.Summary.ResolvedConflicts)
+}
+
+func ResolveText(writer io.Writer, conflictID string, decision model.ResolutionDecision, resolutionID string) error {
+	out := textWriter{writer: writer}
+	return out.line("resolved %s with %s as %s", conflictID, decision, resolutionID)
+}
+
 func actionOrder(operations []model.Operation) []string {
 	preferred := []string{"create-or-merge", "manual", "skip", "redact"}
 	seen := make(map[string]bool)

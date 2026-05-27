@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -22,12 +21,6 @@ type PreviewFile struct {
 type CodexPreview struct {
 	Files    []PreviewFile
 	Warnings []model.Warning
-}
-
-var inlineSecretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9_]{8,}`),
-	regexp.MustCompile(`sk-[A-Za-z0-9_-]{20,}`),
-	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`),
 }
 
 func BuildCodexPreview(scan model.ScanReport, plan model.PlanReport) (CodexPreview, error) {
@@ -271,6 +264,7 @@ func writeResourceSection(buf *bytes.Buffer, title string, resources []model.Res
 func writeWarnings(buf *bytes.Buffer, warnings []model.Warning) {
 	for _, warning := range warnings {
 		message := scrubWarningMessage(warning.Message)
+		message, _ = security.RedactContent(message)
 		if warning.Code == "secret-redacted" {
 			message += " " + security.RedactedValue
 		}
@@ -310,44 +304,8 @@ func scrubWarningMessage(message string) string {
 }
 
 func redactSourceLines(contents []byte) []byte {
-	lines := strings.Split(string(contents), "\n")
-	for i, line := range lines {
-		if redacted, ok := redactSourceLine(line); ok {
-			lines[i] = redacted
-		}
-	}
-	return []byte(redactInlineSecrets(strings.Join(lines, "\n")))
-}
-
-func redactInlineSecrets(contents string) string {
-	redacted := contents
-	for _, pattern := range inlineSecretPatterns {
-		redacted = pattern.ReplaceAllString(redacted, security.RedactedValue)
-	}
-	return redacted
-}
-
-func redactSourceLine(line string) (string, bool) {
-	if key, _, ok := strings.Cut(line, ":"); ok && security.IsSecretKey(strings.TrimSpace(key)) {
-		return key + ": " + security.RedactedValue, true
-	}
-
-	trimmed := strings.TrimLeft(line, " \t")
-	leading := line[:len(line)-len(trimmed)]
-	fields := strings.Fields(trimmed)
-	changed := false
-	for i, field := range fields {
-		key, _, ok := strings.Cut(field, "=")
-		if !ok || !security.IsSecretKey(strings.TrimSpace(key)) {
-			continue
-		}
-		fields[i] = key + "=" + security.RedactedValue
-		changed = true
-	}
-	if !changed {
-		return "", false
-	}
-	return leading + strings.Join(fields, " "), true
+	redacted, _ := security.RedactContent(string(contents))
+	return []byte(redacted)
 }
 
 func readSource(resource model.Resource) ([]byte, error) {

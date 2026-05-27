@@ -208,6 +208,20 @@ func TestBuildCodexPreviewScrubsAbsolutePathsFromWarnings(t *testing.T) {
 	}
 }
 
+func TestBuildCodexPreviewRedactsSecretsFromWarnings(t *testing.T) {
+	preview := buildSyntheticPreviewWithWarnings(t, []model.Warning{{Code: "secret-redacted", Message: "GITHUB_TOKEN=" + fixtureSecret + " requires review"}})
+
+	for _, path := range []string{".codex/config.toml", "migration-report.md"} {
+		contents := string(requireFile(t, preview, path).Contents)
+		if strings.Contains(contents, fixtureSecret) {
+			t.Fatalf("%s leaked warning secret:\n%s", path, contents)
+		}
+		if !strings.Contains(contents, "GITHUB_TOKEN=<REDACTED>") {
+			t.Fatalf("%s missing redacted warning secret:\n%s", path, contents)
+		}
+	}
+}
+
 func TestBuildCodexPreviewRedactsSecretLikeSourceLines(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -26,6 +26,7 @@
 
 # Data
 /data/
+/.agent-canon/
 *.db
 *.sqlite
 *.sqlite3

@@ -42,6 +42,15 @@ func RunE(args []string, cwd string, homeDir string, stdout io.Writer, stderr io
 	if opts.Command == "export" {
 		return runExport(opts, stdout)
 	}
+	if opts.Command == "sync" {
+		return runSync(opts, stdout)
+	}
+	if opts.Command == "conflicts" {
+		return runConflicts(opts, stdout)
+	}
+	if opts.Command == "resolve" {
+		return runResolve(opts, stdout)
+	}
 	return withExitCode(1, "unknown command %q", opts.Command)
 }
 
