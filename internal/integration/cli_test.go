@@ -465,6 +465,104 @@ func TestSecretFixtureApplyDoesNotLeakToCLIOutputsOrState(t *testing.T) {
 	}
 }
 
+func TestVerifyCodexAfterApplyRoundTrip(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	runSyncCommand(t, fixture)
+	var stdout, stderr bytes.Buffer
+	code := app.Run([]string{"apply", "codex", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("apply exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"verify", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify codex exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon verify codex") || !strings.Contains(stdout.String(), "fail=0") {
+		t.Fatalf("verify codex stdout missing success summary: %q", stdout.String())
+	}
+}
+
+func TestVerifyCodexJSONReportsSchemaAndIsReadOnly(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"verify", "codex", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify codex json exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var report model.VerifyReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("verify JSON invalid: %v\n%s", err, stdout.String())
+	}
+	if report.SchemaVersion != model.VerifySchemaVersion || report.Target != "codex" {
+		t.Fatalf("verify report metadata = %#v", report)
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestVerifyCodexMalformedConfigReturnsExitOne(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	mustWriteFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), "[mcp_servers.github\ncommand = \"gh\"\n")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"verify", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("verify malformed config exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fail codex-config-project") {
+		t.Fatalf("verify malformed config stdout missing failed check: %q", stdout.String())
+	}
+}
+
+func TestVerifyCodexOpenConflictsReturnsExitOne(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	mustWriteFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "shared base\n")
+	mustWriteFile(t, filepath.Join(fixture.project, "AGENTS.md"), "shared base\n")
+	runSyncCommand(t, fixture)
+	mustWriteFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "ours changed\n")
+	mustWriteFile(t, filepath.Join(fixture.project, "AGENTS.md"), "theirs changed\n")
+	runSyncCommand(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"verify", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("verify open conflicts exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fail sync-conflicts") || !strings.Contains(stdout.String(), "open conflicts") {
+		t.Fatalf("verify open conflicts stdout missing failed check: %q", stdout.String())
+	}
+}
+
+func TestVerifyClaudeIsReadOnly(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"verify", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("verify claude exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon verify claude") {
+		t.Fatalf("verify claude stdout missing header: %q", stdout.String())
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestSecretFixtureVerifyDoesNotLeakToCLIOutputsOrState(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	_ = app.Run([]string{"verify", "codex", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "verify stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "verify stderr")
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
 type fixturePaths struct {
 	home       string
 	root       string

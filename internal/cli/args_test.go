@@ -289,6 +289,63 @@ func TestParseRejectsInvalidApplyForms(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsValidVerifyTargetsAndFlags(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name         string
+		args         []string
+		verifyTarget string
+		format       string
+	}{
+		{name: "codex", args: []string{"verify", "codex", "--project", root}, verifyTarget: "codex", format: "text"},
+		{name: "claude", args: []string{"verify", "claude", "--project", root}, verifyTarget: "claude", format: "text"},
+		{name: "codex json", args: []string{"verify", "codex", "--format", "json", "--project", root}, verifyTarget: "codex", format: "json"},
+		{name: "claude json", args: []string{"verify", "claude", "--format", "json", "--project", root}, verifyTarget: "claude", format: "json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, root, root)
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if opts.Command != "verify" {
+				t.Fatalf("Command = %q, want verify", opts.Command)
+			}
+			if opts.VerifyTarget != tc.verifyTarget {
+				t.Fatalf("VerifyTarget = %q, want %q", opts.VerifyTarget, tc.verifyTarget)
+			}
+			if opts.Format != tc.format {
+				t.Fatalf("Format = %q, want %q", opts.Format, tc.format)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidVerifyForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing target", args: []string{"verify", "--project", root}},
+		{name: "unsupported target", args: []string{"verify", "other", "--project", root}},
+		{name: "extra arg", args: []string{"verify", "codex", "extra", "--project", root}},
+		{name: "out", args: []string{"verify", "codex", "--out", "preview", "--project", root}},
+		{name: "dry run", args: []string{"verify", "codex", "--dry-run", "--project", root}},
+		{name: "yes", args: []string{"verify", "codex", "--yes", "--project", root}},
+		{name: "global", args: []string{"verify", "codex", "--global", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestParseAcceptsValidResolveDecisions(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
@@ -368,6 +425,9 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon sync claude codex [flags]",
 				"agent-canon conflicts [flags]",
 				"agent-canon resolve <conflict-id>",
+				"verify is read-only",
+				"agent-canon verify codex [flags]",
+				"agent-canon verify claude [flags]",
 			} {
 				if !strings.Contains(help, want) {
 					t.Fatalf("help output missing %q: %q", want, help)

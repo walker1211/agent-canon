@@ -237,6 +237,56 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 	return nil
 }
 
+func VerifyText(writer io.Writer, report model.VerifyReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon verify %s", report.Target); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Summary: pass=%d warn=%d fail=%d warnings=%d", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, len(report.Warnings)); err != nil {
+		return err
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Checks:"); err != nil {
+		return err
+	}
+	if len(report.Checks) == 0 {
+		if err := out.line("- none"); err != nil {
+			return err
+		}
+	}
+	for _, check := range report.Checks {
+		message, _ := security.RedactContent(check.Message)
+		path := ""
+		if check.Path != "" {
+			path = fmt.Sprintf(" (%s)", check.Path)
+		}
+		if err := out.line("- %s %s: %s%s", check.Status, check.ID, message, path); err != nil {
+			return err
+		}
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func applyActionCounts(changes []model.ApplyFileChange) (int, int, int) {
 	create := 0
 	modify := 0

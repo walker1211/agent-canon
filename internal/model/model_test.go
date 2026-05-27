@@ -483,6 +483,70 @@ func TestApplyFileChangeOmitsEmptyBackupAndBeforeHash(t *testing.T) {
 	assertMissingKey(t, got, "beforeHash")
 }
 
+func TestVerifyReportMarshalsChecksAndSummary(t *testing.T) {
+	report := VerifyReport{
+		SchemaVersion: VerifySchemaVersion,
+		Target:        "codex",
+		Project:       "/repo",
+		ClaudeHome:    "/home/.claude",
+		CodexHome:     "/home/.codex",
+		Checks: []VerifyCheck{
+			{
+				ID:      "codex-config-project",
+				Target:  "codex",
+				Status:  VerifyStatusPass,
+				Message: "Codex project config is readable.",
+				Path:    "/repo/.codex/config.toml",
+			},
+			{
+				ID:       "codex-mcp-list",
+				Target:   "codex",
+				Status:   VerifyStatusWarn,
+				Message:  "No MCP entries found.",
+				Warnings: []Warning{{Code: "mcp-missing", Message: "no MCP entries found"}},
+			},
+		},
+		Summary:  VerifySummary{Pass: 1, Warn: 1, Fail: 0},
+		Warnings: []Warning{{Code: "verify", Message: "warning surfaced"}},
+	}
+
+	got := marshalToMap(t, report)
+
+	assertString(t, got, "schemaVersion", "agent-canon.verify.v1")
+	assertString(t, got, "target", "codex")
+	assertString(t, got, "project", "/repo")
+	assertString(t, got, "claudeHome", "/home/.claude")
+	assertString(t, got, "codexHome", "/home/.codex")
+	assertHasKey(t, got, "checks")
+	assertHasKey(t, got, "summary")
+	assertHasKey(t, got, "warnings")
+
+	check := got["checks"].([]any)[0].(map[string]any)
+	assertString(t, check, "id", "codex-config-project")
+	assertString(t, check, "target", "codex")
+	assertString(t, check, "status", "pass")
+	assertString(t, check, "message", "Codex project config is readable.")
+	assertString(t, check, "path", "/repo/.codex/config.toml")
+
+	warningCheck := got["checks"].([]any)[1].(map[string]any)
+	assertString(t, warningCheck, "status", "warn")
+	assertHasKey(t, warningCheck, "warnings")
+
+	summary := got["summary"].(map[string]any)
+	assertNumber(t, summary, "pass", 1)
+	assertNumber(t, summary, "warn", 1)
+	assertNumber(t, summary, "fail", 0)
+}
+
+func TestVerifyCheckOmitsEmptyOptionalFields(t *testing.T) {
+	check := VerifyCheck{ID: "sync-conflicts", Target: "claude", Status: VerifyStatusFail, Message: "open conflicts found"}
+
+	got := marshalToMap(t, check)
+
+	assertMissingKey(t, got, "path")
+	assertMissingKey(t, got, "warnings")
+}
+
 func TestModelEnumsMarshalExpectedValues(t *testing.T) {
 	enums := struct {
 		Added              DiffKind           `json:"added"`

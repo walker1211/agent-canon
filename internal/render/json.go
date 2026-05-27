@@ -20,6 +20,10 @@ func SyncJSON(writer io.Writer, report model.SyncStateReport) error {
 	return writeJSON(writer, report)
 }
 
+func VerifyJSON(writer io.Writer, report model.VerifyReport) error {
+	return writeJSON(writer, report)
+}
+
 func writeJSON(writer io.Writer, value any) error {
 	payload, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

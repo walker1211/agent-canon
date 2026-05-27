@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, and apply tool.
+const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, apply, and verify tool.
 
-Write boundary: scan and conflicts are read-only; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation.
+Write boundary: scan and conflicts are read-only; verify is read-only; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation.
 
 Usage:
   agent-canon scan [flags]
@@ -25,6 +25,8 @@ Usage:
   agent-canon resolve <conflict-id> --manual <value>
   agent-canon apply codex [flags]
   agent-canon apply claude [flags]
+  agent-canon verify codex [flags]
+  agent-canon verify claude [flags]
 
 Commands:
   scan          Read-only inventory of Claude and Codex resources
@@ -35,6 +37,8 @@ Commands:
   resolve       Resolve one conflict; writes only project .agent-canon
   apply codex   Apply Codex target files after conflict checks, backup, and confirmation
   apply claude  Unsupported in agent-canon; Codex -> Claude import is not implemented yet
+  verify codex  Read-only validation of Codex targets, skills, MCP hints, and conflict state
+  verify claude Read-only validation of Claude targets, settings, and conflict state
 
 Flags:
   --from string          source tool; currently accepts only claude (default "claude")
@@ -42,7 +46,7 @@ Flags:
   --project string       project directory (default current working directory)
   --claude-home string   Claude Code home (default ~/.claude)
   --codex-home string    Codex home (default ~/.codex)
-  --format string        scan/plan/sync/conflicts output format: text or json (default "text")
+  --format string        scan/plan/sync/conflicts/verify output format: text or json (default "text")
   --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
   --include-memory       scan memory indexes and candidates only; does not migrate content
   --dry-run              apply codex: show planned changes without writing
@@ -59,6 +63,7 @@ type Options struct {
 	ResolveDecision string
 	ManualValue     string
 	ApplyTarget     string
+	VerifyTarget    string
 	From            string
 	To              string
 	Project         string
@@ -100,7 +105,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "scan" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" {
+	if command != "scan" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "verify" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
@@ -109,6 +114,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	syncTarget := ""
 	conflictID := ""
 	applyTarget := ""
+	verifyTarget := ""
 	flagArgs := args[1:]
 	switch command {
 	case "export":
@@ -145,6 +151,15 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 			return Options{}, usageError{message: fmt.Sprintf("unsupported apply target %q", applyTarget), code: 1}
 		}
 		flagArgs = flagArgs[1:]
+	case "verify":
+		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
+			return Options{}, usageError{message: "verify requires target codex or claude", code: 1}
+		}
+		verifyTarget = flagArgs[0]
+		if verifyTarget != "codex" && verifyTarget != "claude" {
+			return Options{}, usageError{message: fmt.Sprintf("unsupported verify target %q", verifyTarget), code: 1}
+		}
+		flagArgs = flagArgs[1:]
 	}
 
 	defaults := Options{
@@ -154,6 +169,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		SyncTarget:   syncTarget,
 		ConflictID:   conflictID,
 		ApplyTarget:  applyTarget,
+		VerifyTarget: verifyTarget,
 		From:         "claude",
 		To:           "codex",
 		Project:      cwd,

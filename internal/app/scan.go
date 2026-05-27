@@ -63,6 +63,9 @@ func RunEWithIO(args []string, cwd string, homeDir string, stdin io.Reader, stdo
 	if opts.Command == "apply" {
 		return runApply(opts, stdin, stdout)
 	}
+	if opts.Command == "verify" {
+		return runVerify(opts, stdout)
+	}
 	return withExitCode(1, "unknown command %q", opts.Command)
 }
 

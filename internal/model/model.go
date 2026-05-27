@@ -9,6 +9,7 @@ const (
 	LearnedResolutionsSchemaVersion = "agent-canon.learned-resolutions.v1"
 	ApplyPlanSchemaVersion          = "agent-canon.apply-plan.v1"
 	RollbackManifestSchemaVersion   = "agent-canon.rollback-manifest.v1"
+	VerifySchemaVersion             = "agent-canon.verify.v1"
 )
 
 type Status string
@@ -85,10 +86,18 @@ const (
 
 type ApplyAction string
 
+type VerifyStatus string
+
 const (
 	ApplyActionCreate ApplyAction = "create"
 	ApplyActionModify ApplyAction = "modify"
 	ApplyActionNoop   ApplyAction = "noop"
+)
+
+const (
+	VerifyStatusPass VerifyStatus = "pass"
+	VerifyStatusWarn VerifyStatus = "warn"
+	VerifyStatusFail VerifyStatus = "fail"
 )
 
 type Resource struct {
@@ -270,4 +279,30 @@ type RollbackManifestReport struct {
 	Changes       []ApplyFileChange `json:"changes"`
 	BaseSnapshots map[string]string `json:"baseSnapshots"`
 	Warnings      []Warning         `json:"warnings"`
+}
+
+type VerifyCheck struct {
+	ID       string       `json:"id"`
+	Target   string       `json:"target"`
+	Status   VerifyStatus `json:"status"`
+	Message  string       `json:"message"`
+	Path     string       `json:"path,omitempty"`
+	Warnings []Warning    `json:"warnings,omitempty"`
+}
+
+type VerifySummary struct {
+	Pass int `json:"pass"`
+	Warn int `json:"warn"`
+	Fail int `json:"fail"`
+}
+
+type VerifyReport struct {
+	SchemaVersion string        `json:"schemaVersion"`
+	Target        string        `json:"target"`
+	Project       string        `json:"project"`
+	ClaudeHome    string        `json:"claudeHome,omitempty"`
+	CodexHome     string        `json:"codexHome,omitempty"`
+	Checks        []VerifyCheck `json:"checks"`
+	Summary       VerifySummary `json:"summary"`
+	Warnings      []Warning     `json:"warnings"`
 }
