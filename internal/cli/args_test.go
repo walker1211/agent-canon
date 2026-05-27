@@ -346,6 +346,76 @@ func TestParseRejectsInvalidVerifyForms(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsValidLifecycleCommands(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		command    string
+		format     string
+		diffTarget string
+		memory     bool
+	}{
+		{name: "init", args: []string{"init", "--project", root}, command: "init", format: "text"},
+		{name: "init json", args: []string{"init", "--format", "json", "--project", root}, command: "init", format: "json"},
+		{name: "status", args: []string{"status", "--project", root}, command: "status", format: "text"},
+		{name: "status json", args: []string{"status", "--format", "json", "--project", root}, command: "status", format: "json"},
+		{name: "diff default", args: []string{"diff", "--project", root}, command: "diff", format: "text", diffTarget: "codex"},
+		{name: "diff codex json", args: []string{"diff", "codex", "--format", "json", "--project", root}, command: "diff", format: "json", diffTarget: "codex"},
+		{name: "diff include memory", args: []string{"diff", "--include-memory", "--project", root}, command: "diff", format: "text", diffTarget: "codex", memory: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, root, root)
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if opts.Command != tc.command {
+				t.Fatalf("Command = %q, want %q", opts.Command, tc.command)
+			}
+			if opts.Format != tc.format {
+				t.Fatalf("Format = %q, want %q", opts.Format, tc.format)
+			}
+			if opts.DiffTarget != tc.diffTarget {
+				t.Fatalf("DiffTarget = %q, want %q", opts.DiffTarget, tc.diffTarget)
+			}
+			if opts.IncludeMemory != tc.memory {
+				t.Fatalf("IncludeMemory = %v, want %v", opts.IncludeMemory, tc.memory)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidLifecycleForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "diff unsupported target", args: []string{"diff", "claude", "--project", root}},
+		{name: "diff extra arg", args: []string{"diff", "codex", "extra", "--project", root}},
+		{name: "init out", args: []string{"init", "--out", "manifest.json", "--project", root}},
+		{name: "status out", args: []string{"status", "--out", "status.json", "--project", root}},
+		{name: "diff out", args: []string{"diff", "--out", "diff.json", "--project", root}},
+		{name: "init include memory", args: []string{"init", "--include-memory", "--project", root}},
+		{name: "status include memory", args: []string{"status", "--include-memory", "--project", root}},
+		{name: "init dry run", args: []string{"init", "--dry-run", "--project", root}},
+		{name: "status yes", args: []string{"status", "--yes", "--project", root}},
+		{name: "diff global", args: []string{"diff", "--global", "--project", root}},
+		{name: "init resolve flag", args: []string{"init", "--ours", "--project", root}},
+		{name: "status manual flag", args: []string{"status", "--manual", "value", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestParseAcceptsValidResolveDecisions(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
@@ -418,14 +488,17 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 			}
 			help := stdout.String()
 			for _, want := range []string{
-				"scan and conflicts are read-only",
+				"scan, status, diff, conflicts, and verify are read-only",
+				"init writes only project .agent-canon",
+				"agent-canon init [flags]",
+				"agent-canon status [flags]",
+				"agent-canon diff [codex] [flags]",
 				"plan --out writes",
 				"export codex --out writes",
 				"sync/resolve write only project .agent-canon",
 				"agent-canon sync claude codex [flags]",
 				"agent-canon conflicts [flags]",
 				"agent-canon resolve <conflict-id>",
-				"verify is read-only",
 				"agent-canon verify codex [flags]",
 				"agent-canon verify claude [flags]",
 			} {

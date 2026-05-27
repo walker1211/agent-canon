@@ -31,6 +31,7 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"BaseClaude":         layout.BaseClaude,
 		"BaseCodex":          layout.BaseCodex,
 		"BaseCanon":          layout.BaseCanon,
+		"Manifest":           layout.Manifest,
 		"SyncState":          layout.SyncState,
 		"ResolutionsDir":     layout.ResolutionsDir,
 		"LearnedResolutions": layout.LearnedResolutions,
@@ -44,6 +45,7 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"BaseClaude":         filepath.Join(base, "claude.snapshot.json"),
 		"BaseCodex":          filepath.Join(base, "codex.snapshot.json"),
 		"BaseCanon":          filepath.Join(base, "canon.snapshot.json"),
+		"Manifest":           filepath.Join(root, "manifest.json"),
 		"SyncState":          filepath.Join(root, "sync-state.json"),
 		"ResolutionsDir":     resolutions,
 		"LearnedResolutions": filepath.Join(resolutions, "learned-resolutions.json"),
@@ -52,6 +54,31 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Layout paths = %#v, want %#v", got, want)
+	}
+}
+
+func TestSaveAndLoadManifestCreatesWorkspaceAndWritesIndentedJSON(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	value := map[string]any{"schemaVersion": "agent-canon.workspace-manifest.v1", "source": "claude", "target": "codex"}
+	if err := layout.SaveManifest(value); err != nil {
+		t.Fatalf("SaveManifest returned error: %v", err)
+	}
+
+	assertDirMode(t, layout.Root, 0o755)
+	assertFileMode(t, layout.Manifest, 0o644)
+	assertFileContents(t, layout.Manifest, "{\n  \"schemaVersion\": \"agent-canon.workspace-manifest.v1\",\n  \"source\": \"claude\",\n  \"target\": \"codex\"\n}\n")
+
+	var got map[string]string
+	if err := layout.LoadManifest(&got); err != nil {
+		t.Fatalf("LoadManifest returned error: %v", err)
+	}
+	if got["schemaVersion"] != "agent-canon.workspace-manifest.v1" || got["source"] != "claude" || got["target"] != "codex" {
+		t.Fatalf("manifest = %#v, want saved values", got)
 	}
 }
 
@@ -302,6 +329,25 @@ func TestTypedSavesRejectMutatedLayoutPaths(t *testing.T) {
 	assertPathMissing(t, unexpected)
 }
 
+func TestSaveManifestRejectsMutatedLayoutPath(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	unexpected := filepath.Join(layout.Root, "unexpected-manifest.json")
+	layout.Manifest = unexpected
+
+	err = layout.SaveManifest(map[string]string{"name": "manifest"})
+	if err == nil {
+		t.Fatalf("SaveManifest returned nil error for mutated layout path")
+	}
+	if !strings.Contains(err.Error(), "known layout path") {
+		t.Fatalf("error missing known-path context: %v", err)
+	}
+	assertPathMissing(t, unexpected)
+}
+
 func TestTypedSavesRejectMutatedProjectAndLayoutPath(t *testing.T) {
 	project := t.TempDir()
 	otherProject := t.TempDir()
@@ -351,6 +397,9 @@ func TestTypedSavesWriteOnlyExpectedWorkspaceFiles(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
+	if err := layout.SaveManifest(map[string]string{"name": "manifest"}); err != nil {
+		t.Fatalf("SaveManifest returned error: %v", err)
+	}
 	if err := layout.SaveBaseClaude(map[string]string{"name": "claude"}); err != nil {
 		t.Fatalf("SaveBaseClaude returned error: %v", err)
 	}
@@ -365,6 +414,7 @@ func TestTypedSavesWriteOnlyExpectedWorkspaceFiles(t *testing.T) {
 	}
 
 	wantFiles := map[string]string{
+		layout.Manifest:           "{\n  \"name\": \"manifest\"\n}\n",
 		layout.BaseClaude:         "{\n  \"name\": \"claude\"\n}\n",
 		layout.BaseCodex:          "{\n  \"name\": \"codex\"\n}\n",
 		layout.BaseCanon:          "{\n  \"name\": \"canon\"\n}\n",

@@ -42,8 +42,17 @@ func RunEWithIO(args []string, cwd string, homeDir string, stdin io.Reader, stdo
 			return withExitCode(1, "%w", err)
 		}
 	}
+	if opts.Command == "init" {
+		return runInit(opts, stdout)
+	}
 	if opts.Command == "scan" {
 		return runScan(opts, stdout)
+	}
+	if opts.Command == "status" {
+		return runStatus(opts, stdout)
+	}
+	if opts.Command == "diff" {
+		return runDiff(opts, stdout)
 	}
 	if opts.Command == "plan" {
 		return runPlan(opts, stdout)

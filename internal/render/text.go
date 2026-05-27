@@ -111,6 +111,145 @@ func PlanText(writer io.Writer, report model.PlanReport) error {
 	return nil
 }
 
+func InitText(writer io.Writer, report model.WorkspaceManifestReport, manifestPath string) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon init: %s -> %s", report.Source, report.Target); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Workspace: %s", report.WorkspaceRoot); err != nil {
+		return err
+	}
+	if err := out.line("Manifest: %s", manifestPath); err != nil {
+		return err
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func StatusText(writer io.Writer, report model.StatusReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon status"); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Workspace: %s", report.WorkspaceRoot); err != nil {
+		return err
+	}
+	if err := out.line("Initialized: %t", report.Initialized); err != nil {
+		return err
+	}
+	if report.ManifestPath != "" {
+		if err := out.line("Manifest: %s", report.ManifestPath); err != nil {
+			return err
+		}
+	}
+	if report.SyncStatePath != "" {
+		if err := out.line("Sync state: %s", report.SyncStatePath); err != nil {
+			return err
+		}
+	}
+	if err := out.line("Summary: manifest=%t syncState=%t baseClaude=%t baseCodex=%t baseCanon=%t open=%d resolved=%d warnings=%d", report.Summary.HasManifest, report.Summary.HasSyncState, report.Summary.HasBaseClaude, report.Summary.HasBaseCodex, report.Summary.HasBaseCanon, report.Summary.OpenConflicts, report.Summary.ResolvedConflicts, report.Summary.Warnings); err != nil {
+		return err
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func DiffText(writer io.Writer, report model.DiffReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon diff %s", report.Target); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Summary: diffs=%d open=%d resolved=%d warnings=%d", report.Summary.Diffs, report.Summary.OpenConflicts, report.Summary.ResolvedConflicts, report.Summary.Warnings); err != nil {
+		return err
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Diffs:"); err != nil {
+		return err
+	}
+	if len(report.Diffs) == 0 {
+		if err := out.line("- none"); err != nil {
+			return err
+		}
+	}
+	for _, diff := range report.Diffs {
+		summary, _ := security.RedactContent(diff.Summary)
+		if err := out.line("- %s [%s] %s: %s", diff.DiffKind, diff.Scope, diff.ResourceID, summary); err != nil {
+			return err
+		}
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Conflicts:"); err != nil {
+		return err
+	}
+	if len(report.Conflicts) == 0 {
+		if err := out.line("- none"); err != nil {
+			return err
+		}
+	}
+	for _, conflict := range report.Conflicts {
+		if err := out.line("- %s %s %s %s [%s]", conflict.Status, conflict.ID, conflict.Kind, conflict.ResourceID, conflict.ResourceKind); err != nil {
+			return err
+		}
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func SyncText(writer io.Writer, report model.SyncStateReport, workspaceRoot string, statePath string) error {
 	out := textWriter{writer: writer}
 	if err := out.line("agent-canon sync: %s -> %s", report.Source, report.Target); err != nil {

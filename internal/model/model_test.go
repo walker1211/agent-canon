@@ -483,6 +483,115 @@ func TestApplyFileChangeOmitsEmptyBackupAndBeforeHash(t *testing.T) {
 	assertMissingKey(t, got, "beforeHash")
 }
 
+func TestWorkspaceManifestReportMarshalsMetadata(t *testing.T) {
+	report := WorkspaceManifestReport{
+		SchemaVersion: WorkspaceManifestSchemaVersion,
+		CreatedAt:     "2026-05-27T10:06:00Z",
+		UpdatedAt:     "2026-05-27T10:07:00Z",
+		Project:       "/repo",
+		Source:        "claude",
+		Target:        "codex",
+		WorkspaceRoot: "/repo/.agent-canon",
+		Warnings:      []Warning{},
+	}
+
+	got := marshalToMap(t, report)
+
+	assertString(t, got, "schemaVersion", "agent-canon.workspace-manifest.v1")
+	assertString(t, got, "createdAt", "2026-05-27T10:06:00Z")
+	assertString(t, got, "updatedAt", "2026-05-27T10:07:00Z")
+	assertString(t, got, "project", "/repo")
+	assertString(t, got, "source", "claude")
+	assertString(t, got, "target", "codex")
+	assertString(t, got, "workspaceRoot", "/repo/.agent-canon")
+	assertHasKey(t, got, "warnings")
+}
+
+func TestStatusReportMarshalsWorkspaceSummary(t *testing.T) {
+	report := StatusReport{
+		SchemaVersion: StatusSchemaVersion,
+		Project:       "/repo",
+		WorkspaceRoot: "/repo/.agent-canon",
+		Initialized:   true,
+		ManifestPath:  "/repo/.agent-canon/manifest.json",
+		SyncStatePath: "/repo/.agent-canon/sync-state.json",
+		BaseSnapshots: map[string]bool{"claude": true, "codex": true, "canon": true},
+		Summary: StatusSummary{
+			HasManifest:       true,
+			HasSyncState:      true,
+			HasBaseClaude:     true,
+			HasBaseCodex:      true,
+			HasBaseCanon:      true,
+			OpenConflicts:     1,
+			ResolvedConflicts: 2,
+			Warnings:          0,
+		},
+		Warnings: []Warning{},
+	}
+
+	got := marshalToMap(t, report)
+
+	assertString(t, got, "schemaVersion", "agent-canon.status.v1")
+	assertString(t, got, "project", "/repo")
+	assertString(t, got, "workspaceRoot", "/repo/.agent-canon")
+	assertBool(t, got, "initialized", true)
+	assertString(t, got, "manifestPath", "/repo/.agent-canon/manifest.json")
+	assertString(t, got, "syncStatePath", "/repo/.agent-canon/sync-state.json")
+	assertHasKey(t, got, "baseSnapshots")
+	assertHasKey(t, got, "summary")
+	assertHasKey(t, got, "warnings")
+
+	summary := got["summary"].(map[string]any)
+	assertBool(t, summary, "hasManifest", true)
+	assertBool(t, summary, "hasSyncState", true)
+	assertNumber(t, summary, "openConflicts", 1)
+	assertNumber(t, summary, "resolvedConflicts", 2)
+}
+
+func TestDiffReportMarshalsDiffsConflictsAndSummary(t *testing.T) {
+	report := DiffReport{
+		SchemaVersion: DiffSchemaVersion,
+		Project:       "/repo",
+		Target:        "codex",
+		Diffs: []SemanticDiff{{
+			ResourceID: "instruction:project",
+			Kind:       KindInstruction,
+			Scope:      ScopeProject,
+			DiffKind:   DiffKindChanged,
+			Summary:    "instruction:project changed",
+		}},
+		Conflicts: []Conflict{{
+			ID:                   "conflict-001",
+			Kind:                 ConflictKindContent,
+			ResourceID:           "instruction:project",
+			ResourceKind:         KindInstruction,
+			Scope:                ScopeProject,
+			RequiresUserDecision: true,
+			Status:               ConflictStatusOpen,
+			Fingerprint:          "fingerprint",
+			Warnings:             []Warning{},
+		}},
+		Summary:  DiffSummary{Diffs: 1, OpenConflicts: 1, ResolvedConflicts: 0, Warnings: 0},
+		Warnings: []Warning{},
+	}
+
+	got := marshalToMap(t, report)
+
+	assertString(t, got, "schemaVersion", "agent-canon.diff.v1")
+	assertString(t, got, "project", "/repo")
+	assertString(t, got, "target", "codex")
+	assertHasKey(t, got, "diffs")
+	assertHasKey(t, got, "conflicts")
+	assertHasKey(t, got, "summary")
+	assertHasKey(t, got, "warnings")
+
+	summary := got["summary"].(map[string]any)
+	assertNumber(t, summary, "diffs", 1)
+	assertNumber(t, summary, "openConflicts", 1)
+	assertNumber(t, summary, "resolvedConflicts", 0)
+	assertNumber(t, summary, "warnings", 0)
+}
+
 func TestVerifyReportMarshalsChecksAndSummary(t *testing.T) {
 	report := VerifyReport{
 		SchemaVersion: VerifySchemaVersion,

@@ -9,6 +9,9 @@ const (
 	LearnedResolutionsSchemaVersion = "agent-canon.learned-resolutions.v1"
 	ApplyPlanSchemaVersion          = "agent-canon.apply-plan.v1"
 	RollbackManifestSchemaVersion   = "agent-canon.rollback-manifest.v1"
+	WorkspaceManifestSchemaVersion  = "agent-canon.workspace-manifest.v1"
+	StatusSchemaVersion             = "agent-canon.status.v1"
+	DiffSchemaVersion               = "agent-canon.diff.v1"
 	VerifySchemaVersion             = "agent-canon.verify.v1"
 )
 
@@ -279,6 +282,57 @@ type RollbackManifestReport struct {
 	Changes       []ApplyFileChange `json:"changes"`
 	BaseSnapshots map[string]string `json:"baseSnapshots"`
 	Warnings      []Warning         `json:"warnings"`
+}
+
+type WorkspaceManifestReport struct {
+	SchemaVersion string    `json:"schemaVersion"`
+	CreatedAt     string    `json:"createdAt"`
+	UpdatedAt     string    `json:"updatedAt"`
+	Project       string    `json:"project"`
+	Source        string    `json:"source"`
+	Target        string    `json:"target"`
+	WorkspaceRoot string    `json:"workspaceRoot"`
+	Warnings      []Warning `json:"warnings"`
+}
+
+type StatusReport struct {
+	SchemaVersion string          `json:"schemaVersion"`
+	Project       string          `json:"project"`
+	WorkspaceRoot string          `json:"workspaceRoot"`
+	Initialized   bool            `json:"initialized"`
+	ManifestPath  string          `json:"manifestPath,omitempty"`
+	SyncStatePath string          `json:"syncStatePath,omitempty"`
+	BaseSnapshots map[string]bool `json:"baseSnapshots"`
+	Summary       StatusSummary   `json:"summary"`
+	Warnings      []Warning       `json:"warnings"`
+}
+
+type StatusSummary struct {
+	HasManifest       bool `json:"hasManifest"`
+	HasSyncState      bool `json:"hasSyncState"`
+	HasBaseClaude     bool `json:"hasBaseClaude"`
+	HasBaseCodex      bool `json:"hasBaseCodex"`
+	HasBaseCanon      bool `json:"hasBaseCanon"`
+	OpenConflicts     int  `json:"openConflicts"`
+	ResolvedConflicts int  `json:"resolvedConflicts"`
+	Warnings          int  `json:"warnings"`
+}
+
+type DiffReport struct {
+	SchemaVersion string         `json:"schemaVersion"`
+	Project       string         `json:"project"`
+	Target        string         `json:"target"`
+	Diffs         []SemanticDiff `json:"diffs"`
+	Conflicts     []Conflict     `json:"conflicts"`
+	Summary       DiffSummary    `json:"summary"`
+	Warnings      []Warning      `json:"warnings"`
+}
+
+type DiffSummary struct {
+	Diffs             int `json:"diffs"`
+	OpenConflicts     int `json:"openConflicts"`
+	ResolvedConflicts int `json:"resolvedConflicts"`
+	Warnings          int `json:"warnings"`
 }
 
 type VerifyCheck struct {

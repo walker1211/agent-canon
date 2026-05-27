@@ -24,6 +24,7 @@ type Layout struct {
 	BaseClaude         string
 	BaseCodex          string
 	BaseCanon          string
+	Manifest           string
 	SyncState          string
 	ResolutionsDir     string
 	LearnedResolutions string
@@ -40,6 +41,7 @@ type layoutPaths struct {
 	BaseClaude         string
 	BaseCodex          string
 	BaseCanon          string
+	Manifest           string
 	SyncState          string
 	ResolutionsDir     string
 	LearnedResolutions string
@@ -59,6 +61,7 @@ func New(project string) (Layout, error) {
 		BaseClaude:         paths.BaseClaude,
 		BaseCodex:          paths.BaseCodex,
 		BaseCanon:          paths.BaseCanon,
+		Manifest:           paths.Manifest,
 		SyncState:          paths.SyncState,
 		ResolutionsDir:     paths.ResolutionsDir,
 		LearnedResolutions: paths.LearnedResolutions,
@@ -91,6 +94,7 @@ func newLayoutPaths(project string) (layoutPaths, error) {
 		BaseClaude:         filepath.Join(base, "claude.snapshot.json"),
 		BaseCodex:          filepath.Join(base, "codex.snapshot.json"),
 		BaseCanon:          filepath.Join(base, "canon.snapshot.json"),
+		Manifest:           filepath.Join(root, "manifest.json"),
 		SyncState:          filepath.Join(root, "sync-state.json"),
 		ResolutionsDir:     resolutions,
 		LearnedResolutions: filepath.Join(resolutions, "learned-resolutions.json"),
@@ -121,6 +125,14 @@ func (l Layout) LoadBaseCodex(dest any) error {
 
 func (l Layout) LoadBaseCanon(dest any) error {
 	return l.readJSON(l.BaseCanon, l.paths.BaseCanon, dest)
+}
+
+func (l Layout) SaveManifest(value any) error {
+	return l.writeJSON(l.Manifest, l.paths.Manifest, value)
+}
+
+func (l Layout) LoadManifest(dest any) error {
+	return l.readJSON(l.Manifest, l.paths.Manifest, dest)
 }
 
 func (l Layout) SaveSyncState(value any) error {
@@ -251,7 +263,7 @@ func (l Layout) validateKnownPath(path string, canonicalPath string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Contains([]string{known.BaseClaude, known.BaseCodex, known.BaseCanon, known.SyncState, known.LearnedResolutions}, canonicalPath) {
+	if !slices.Contains([]string{known.Manifest, known.BaseClaude, known.BaseCodex, known.BaseCanon, known.SyncState, known.LearnedResolutions}, canonicalPath) {
 		return fmt.Errorf("workspace path %s is not a known layout path", canonicalPath)
 	}
 	if filepath.Clean(path) != canonicalPath {

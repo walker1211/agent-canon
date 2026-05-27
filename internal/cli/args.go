@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, apply, and verify tool.
+const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, apply, verify, and workspace lifecycle tool.
 
-Write boundary: scan and conflicts are read-only; verify is read-only; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation.
+Write boundary: scan, status, diff, conflicts, and verify are read-only; init writes only project .agent-canon; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation.
 
 Usage:
+  agent-canon init [flags]
   agent-canon scan [flags]
+  agent-canon status [flags]
+  agent-canon diff [codex] [flags]
   agent-canon plan [flags]
   agent-canon export codex [flags]
   agent-canon sync claude codex [flags]
@@ -29,7 +32,10 @@ Usage:
   agent-canon verify claude [flags]
 
 Commands:
+  init          Initialize project .agent-canon workspace metadata
   scan          Read-only inventory of Claude and Codex resources
+  status        Read-only project .agent-canon workspace status
+  diff          Read-only diff from base snapshots to current Claude/Codex state
   plan          Read-only migration plan generation except when --out writes a JSON plan file
   export codex  Write a Codex preview directory only when --out is set
   sync          Sync claude to codex metadata; writes only project .agent-canon
@@ -46,9 +52,9 @@ Flags:
   --project string       project directory (default current working directory)
   --claude-home string   Claude Code home (default ~/.claude)
   --codex-home string    Codex home (default ~/.codex)
-  --format string        scan/plan/sync/conflicts/verify output format: text or json (default "text")
+  --format string        init/scan/status/diff/plan/sync/conflicts/verify output format: text or json (default "text")
   --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
-  --include-memory       scan memory indexes and candidates only; does not migrate content
+  --include-memory       scan/plan/sync/diff/verify memory indexes and candidates only; does not migrate content
   --dry-run              apply codex: show planned changes without writing
   --yes                  apply codex: skip interactive confirmation
   --global               apply codex: allow writes under --codex-home
@@ -64,6 +70,7 @@ type Options struct {
 	ManualValue     string
 	ApplyTarget     string
 	VerifyTarget    string
+	DiffTarget      string
 	From            string
 	To              string
 	Project         string
@@ -105,7 +112,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "scan" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "verify" {
+	if command != "init" && command != "scan" && command != "status" && command != "diff" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "verify" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
@@ -115,8 +122,18 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	conflictID := ""
 	applyTarget := ""
 	verifyTarget := ""
+	diffTarget := ""
 	flagArgs := args[1:]
 	switch command {
+	case "diff":
+		diffTarget = "codex"
+		if len(flagArgs) > 0 && flagArgs[0] != "" && flagArgs[0][0] != '-' {
+			diffTarget = flagArgs[0]
+			if diffTarget != "codex" {
+				return Options{}, usageError{message: fmt.Sprintf("unsupported diff target %q", diffTarget), code: 1}
+			}
+			flagArgs = flagArgs[1:]
+		}
 	case "export":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
 			return Options{}, usageError{message: "export requires target codex", code: 1}
@@ -170,6 +187,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		ConflictID:   conflictID,
 		ApplyTarget:  applyTarget,
 		VerifyTarget: verifyTarget,
+		DiffTarget:   diffTarget,
 		From:         "claude",
 		To:           "codex",
 		Project:      cwd,
@@ -211,6 +229,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 	if opts.Format != "text" && opts.Format != "json" {
 		return Options{}, usageError{message: "--format must be text or json", code: 1}
+	}
+	if (opts.Command == "init" || opts.Command == "status") && flagWasSet(flags, "include-memory") {
+		return Options{}, usageError{message: "--include-memory is supported only for scan, plan, sync, diff, and verify", code: 1}
 	}
 	if opts.Command == "resolve" && flagWasSet(flags, "format") {
 		return Options{}, usageError{message: "--format is not supported for resolve", code: 1}
