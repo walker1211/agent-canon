@@ -1,0 +1,61 @@
+# Binary
+/agent-canon
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*_token*
+*secret*
+!testdata/secrets/
+!testdata/secrets/**
+
+# Local config
+*.local
+*.local.*
+/config.local.*
+/.claude/settings.local.json
+/.codex/config.local.toml
+
+# Data
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Build artifacts
+/dist/
+/build/
+/coverage/
+*.out
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+/logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Worktrees
+/.worktrees/
+/.claude/worktrees/
+
+# Local/private project assets
+/private/
+/local/
+/assets/private/

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go test ./...)"
+    ],
+    "deny": []
+  },
+  "env": {
+    "AGENT_CANON_MODE": "fixture"
+  }
+}

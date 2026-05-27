@@ -1,0 +1,275 @@
+package integration_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/zhangyoujun/agent-canon/internal/app"
+	"github.com/zhangyoujun/agent-canon/internal/model"
+)
+
+const fixtureSecret = "ghp_agent_canon_fixture_secret_must_not_leak"
+
+func TestBasicScanCommandFromSpecIsReadOnly(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"scan", "--from", "claude", "--to", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--format", "json"}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+
+	var report model.ScanReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not valid scan JSON: %v\n%s", err, stdout.String())
+	}
+	if report.SchemaVersion != model.ScanSchemaVersion {
+		t.Fatalf("schemaVersion = %q, want %q", report.SchemaVersion, model.ScanSchemaVersion)
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestBasicPlanCommandFromSpecIsReadOnly(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"plan", "--from", "claude", "--to", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--format", "json"}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+
+	var report model.PlanReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not valid plan JSON: %v\n%s", err, stdout.String())
+	}
+	if report.SchemaVersion != model.PlanSchemaVersion {
+		t.Fatalf("schemaVersion = %q, want %q", report.SchemaVersion, model.PlanSchemaVersion)
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestInvalidDirectionReturnsExitOne(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"scan", "--from", "codex", "--to", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestNonexistentExplicitCustomPathReturnsExitOne(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "project",
+			args: []string{"scan", "--project", filepath.Join(fixture.root, "missing-project"), "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome},
+		},
+		{
+			name: "claude home",
+			args: []string{"scan", "--project", fixture.project, "--claude-home", filepath.Join(fixture.root, "missing-claude-home"), "--codex-home", fixture.codexHome},
+		},
+		{
+			name: "codex home",
+			args: []string{"scan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", filepath.Join(fixture.root, "missing-codex-home")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := app.Run(tt.args, fixture.project, fixture.home, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestMalformedSettingsJSONReturnsExitTwo(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+	mustWriteFile(t, filepath.Join(claudeHome, "settings.json"), "{")
+	mustMkdir(t, project)
+	mustMkdir(t, codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"scan", "--project", project, "--claude-home", claudeHome, "--codex-home", codexHome}, project, root, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestPlanOutWritesOnlyRequestedPlanFile(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	outDir := t.TempDir()
+	outPath := filepath.Join(outDir, "plan.json")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"plan", "--from", "claude", "--to", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outPath}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+
+	entries, err := os.ReadDir(outDir)
+	if err != nil {
+		t.Fatalf("read out dir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "plan.json" || entries[0].IsDir() {
+		t.Fatalf("out dir entries = %#v, want only plan.json file", entries)
+	}
+	payload, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read plan output: %v", err)
+	}
+	var report model.PlanReport
+	if err := json.Unmarshal(payload, &report); err != nil {
+		t.Fatalf("plan output is not valid JSON: %v\n%s", err, string(payload))
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestSecretFixtureTokenDoesNotLeakToCLIOutputs(t *testing.T) {
+	fixture := fixturePathsFor(t, "secrets")
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "scan text report",
+			args: []string{"scan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome},
+		},
+		{
+			name: "scan json stdout",
+			args: []string{"scan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--format", "json"},
+		},
+		{
+			name: "plan text report",
+			args: []string{"plan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome},
+		},
+		{
+			name: "plan json stdout",
+			args: []string{"plan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--format", "json"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := app.Run(tc.args, fixture.project, fixture.home, &stdout, &stderr)
+			assertDoesNotContainSecret(t, stdout.String(), "stdout")
+			assertDoesNotContainSecret(t, stderr.String(), "stderr")
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0; stderr=%q", code, redactSecret(stderr.String()))
+			}
+		})
+	}
+
+	t.Run("plan out json and stdout", func(t *testing.T) {
+		outPath := filepath.Join(t.TempDir(), "plan.json")
+		var stdout, stderr bytes.Buffer
+		code := app.Run([]string{"plan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outPath}, fixture.project, fixture.home, &stdout, &stderr)
+		assertDoesNotContainSecret(t, stdout.String(), "stdout")
+		assertDoesNotContainSecret(t, stderr.String(), "stderr")
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+		}
+		payload, err := os.ReadFile(outPath)
+		if err != nil {
+			t.Fatalf("read plan output: %v", err)
+		}
+		assertDoesNotContainSecret(t, string(payload), "plan JSON")
+	})
+}
+
+type fixturePaths struct {
+	home       string
+	root       string
+	project    string
+	claudeHome string
+	codexHome  string
+}
+
+func fixturePathsFor(t *testing.T, name string) fixturePaths {
+	t.Helper()
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	root := filepath.Join(repoRoot, "testdata", name)
+	return fixturePaths{
+		home:       root,
+		root:       root,
+		project:    filepath.Join(root, "project"),
+		claudeHome: filepath.Join(root, "claude-home"),
+		codexHome:  filepath.Join(root, "codex-home"),
+	}
+}
+
+func snapshotFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := make(map[string]string)
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[rel] = string(contents)
+		return nil
+	}); err != nil {
+		t.Fatalf("snapshot %s: %v", root, err)
+	}
+	return files
+}
+
+func assertFilesUnchanged(t *testing.T, root string, before map[string]string) {
+	t.Helper()
+	after := snapshotFiles(t, root)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("fixture files changed under %s\nbefore: %#v\nafter: %#v", root, before, after)
+	}
+}
+
+func assertDoesNotContainSecret(t *testing.T, value string, label string) {
+	t.Helper()
+	if strings.Contains(value, fixtureSecret) {
+		t.Fatalf("%s leaked fixture secret", label)
+	}
+}
+
+func redactSecret(value string) string {
+	return strings.ReplaceAll(value, fixtureSecret, "<REDACTED-FIXTURE-SECRET>")
+}
+
+func mustWriteFile(t *testing.T, path string, contents string) {
+	t.Helper()
+	mustMkdir(t, filepath.Dir(path))
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustMkdir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
