@@ -9,18 +9,20 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is an agent-canon read-only migration inventory and plan tool.
+const helpText = `agent-canon is a migration inventory, plan, and preview export tool.
 
-agent-canon is read-only: it never writes Claude or Codex configuration directories.
-The only supported write boundary is that only plan --out writes a JSON plan file.
+agent-canon preview write boundary: it never writes Claude or Codex configuration directories.
+The only supported writes are that only plan --out writes a JSON plan file and only export codex --out writes a Codex preview directory.
 
 Usage:
   agent-canon scan [flags]
   agent-canon plan [flags]
+  agent-canon export codex [flags]
 
 Commands:
-  scan    Read-only inventory of Claude and Codex resources
-  plan    Read-only migration plan generation
+  scan          Read-only inventory of Claude and Codex resources
+  plan          Read-only migration plan generation
+  export codex  Write a Codex preview directory only when --out is set
 
 Flags:
   --from string          source tool; currently accepts only claude (default "claude")
@@ -28,13 +30,14 @@ Flags:
   --project string       project directory (default current working directory)
   --claude-home string   Claude Code home (default ~/.claude)
   --codex-home string    Codex home (default ~/.codex)
-  --format string        output format: text or json (default "text")
-  --out string           plan only: write JSON plan to this path
+  --format string        scan/plan output format: text or json (default "text")
+  --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
   --include-memory       scan memory indexes and candidates only; does not migrate content
 `
 
 type Options struct {
 	Command       string
+	ExportTarget  string
 	From          string
 	To            string
 	Project       string
@@ -73,18 +76,32 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "scan" && command != "plan" {
+	if command != "scan" && command != "plan" && command != "export" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
+	exportTarget := ""
+	flagArgs := args[1:]
+	if command == "export" {
+		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
+			return Options{}, usageError{message: "export requires target codex", code: 1}
+		}
+		exportTarget = flagArgs[0]
+		if exportTarget != "codex" {
+			return Options{}, usageError{message: fmt.Sprintf("unsupported export target %q", exportTarget), code: 1}
+		}
+		flagArgs = flagArgs[1:]
+	}
+
 	defaults := Options{
-		Command:    command,
-		From:       "claude",
-		To:         "codex",
-		Project:    cwd,
-		ClaudeHome: filepath.Join(homeDir, ".claude"),
-		CodexHome:  filepath.Join(homeDir, ".codex"),
-		Format:     "text",
+		Command:      command,
+		ExportTarget: exportTarget,
+		From:         "claude",
+		To:           "codex",
+		Project:      cwd,
+		ClaudeHome:   filepath.Join(homeDir, ".claude"),
+		CodexHome:    filepath.Join(homeDir, ".codex"),
+		Format:       "text",
 	}
 	opts := defaults
 
@@ -98,7 +115,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.StringVar(&opts.Format, "format", opts.Format, "output format")
 	flags.StringVar(&opts.Out, "out", opts.Out, "plan output path")
 	flags.BoolVar(&opts.IncludeMemory, "include-memory", opts.IncludeMemory, "include memory candidates")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(flagArgs); err != nil {
 		return Options{}, usageError{message: err.Error(), code: 1}
 	}
 	if flags.NArg() > 0 {
@@ -112,7 +129,15 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		return Options{}, usageError{message: "--format must be text or json", code: 1}
 	}
 	if opts.Command == "scan" && opts.Out != "" {
-		return Options{}, usageError{message: "--out is supported only for plan", code: 1}
+		return Options{}, usageError{message: "--out is supported only for plan and export codex", code: 1}
+	}
+	if opts.Command == "export" {
+		if flagWasSet(flags, "format") {
+			return Options{}, usageError{message: "--format is not supported for export codex in agent-canon", code: 1}
+		}
+		if opts.Out == "" {
+			return Options{}, usageError{message: "export codex requires --out", code: 1}
+		}
 	}
 
 	project, err := cleanExistingDir(opts.Project, "--project")

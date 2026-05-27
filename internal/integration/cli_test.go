@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -141,6 +142,97 @@ func TestPlanOutWritesOnlyRequestedPlanFile(t *testing.T) {
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestExportCodexWritesPreviewTreeAndLeavesFixtureInputsUnchanged(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "codex-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	for _, path := range []string{
+		"AGENTS.md",
+		filepath.Join(".codex", "config.toml"),
+		filepath.Join(".agents", "skills", "sample-skill", "SKILL.md"),
+		"migration-report.md",
+	} {
+		assertFileExists(t, filepath.Join(outDir, path))
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestExportCodexRejectsExistingNonEmptyPreviewDir(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	outDir := t.TempDir()
+	existing := filepath.Join(outDir, "existing.txt")
+	mustWriteFile(t, existing, "keep\n")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	payload, err := os.ReadFile(existing)
+	if err != nil {
+		t.Fatalf("read existing file: %v", err)
+	}
+	if string(payload) != "keep\n" {
+		t.Fatalf("existing file contents = %q, want keep", string(payload))
+	}
+	assertPathMissing(t, filepath.Join(outDir, "AGENTS.md"))
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestSecretFixtureExportDoesNotLeakToCLIOutputsOrGeneratedFiles(t *testing.T) {
+	fixture := fixturePathsFor(t, "secrets")
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "codex-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "stderr")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, outDir)
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestUnsupportedFixtureExportReportsSkippedResourcesWithoutAutomaticFiles(t *testing.T) {
+	fixture := fixturePathsFor(t, "unsupported")
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "codex-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	report := readFileString(t, filepath.Join(outDir, "migration-report.md"))
+	for _, want := range []string{
+		"hook:global-PreToolUse",
+		"session:global-session-history",
+		"skipped unsupported resources",
+		"review-required resources",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("migration report missing %q in:\n%s", want, report)
+		}
+	}
+	for _, rel := range previewRelativePaths(t, outDir) {
+		if strings.Contains(rel, "PreToolUse") || strings.Contains(rel, "session-history") {
+			t.Fatalf("unsupported resource generated automatic preview file %q", rel)
+		}
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
 func TestSecretFixtureTokenDoesNotLeakToCLIOutputs(t *testing.T) {
 	fixture := fixturePathsFor(t, "secrets")
 	cases := []struct {
@@ -253,6 +345,65 @@ func assertDoesNotContainSecret(t *testing.T, value string, label string) {
 	if strings.Contains(value, fixtureSecret) {
 		t.Fatalf("%s leaked fixture secret", label)
 	}
+}
+
+func assertGeneratedFilesDoNotContainSecret(t *testing.T, root string) {
+	t.Helper()
+	for _, rel := range previewRelativePaths(t, root) {
+		assertDoesNotContainSecret(t, readFileString(t, filepath.Join(root, rel)), rel)
+	}
+}
+
+func previewRelativePaths(t *testing.T, root string) []string {
+	t.Helper()
+	var paths []string
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, rel)
+		return nil
+	}); err != nil {
+		t.Fatalf("walk preview root %s: %v", root, err)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func assertFileExists(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if info.IsDir() {
+		t.Fatalf("%s is a directory, want file", path)
+	}
+}
+
+func assertPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("%s exists unexpectedly", path)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(contents)
 }
 
 func redactSecret(value string) string {

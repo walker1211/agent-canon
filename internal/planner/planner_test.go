@@ -90,8 +90,11 @@ func TestBuildCopiesWarnings(t *testing.T) {
 func TestBuildPopulatesNonGoals(t *testing.T) {
 	plan := Build(model.ScanReport{})
 
+	if slices.Contains(plan.NonGoals, "export") {
+		t.Fatalf("NonGoals = %#v, want export absent", plan.NonGoals)
+	}
+
 	for _, want := range []string{
-		"export",
 		"apply",
 		"sync",
 		"conflicts/resolve",

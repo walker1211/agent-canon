@@ -39,6 +39,9 @@ func RunE(args []string, cwd string, homeDir string, stdout io.Writer, stderr io
 	if opts.Command == "plan" {
 		return runPlan(opts, stdout)
 	}
+	if opts.Command == "export" {
+		return runExport(opts, stdout)
+	}
 	return withExitCode(1, "unknown command %q", opts.Command)
 }
 

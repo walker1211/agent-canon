@@ -65,6 +65,47 @@ func TestParseRejectsScanOut(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsExportCodexOut(t *testing.T) {
+	root := t.TempDir()
+	opts, err := Parse([]string{"export", "codex", "--project", root, "--out", "preview"}, root, root)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	if opts.Command != "export" {
+		t.Fatalf("Command = %q, want export", opts.Command)
+	}
+	if opts.ExportTarget != "codex" {
+		t.Fatalf("ExportTarget = %q, want codex", opts.ExportTarget)
+	}
+	if opts.Out != "preview" {
+		t.Fatalf("Out = %q, want preview", opts.Out)
+	}
+}
+
+func TestParseRejectsInvalidExportForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing target", args: []string{"export", "--project", root, "--out", "preview"}},
+		{name: "unsupported target", args: []string{"export", "claude", "--project", root, "--out", "preview"}},
+		{name: "missing out", args: []string{"export", "codex", "--project", root}},
+		{name: "format not supported", args: []string{"export", "codex", "--project", root, "--format", "json", "--out", "preview"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestParseValidatesFormat(t *testing.T) {
 	root := t.TempDir()
 	_, err := Parse([]string{"plan", "--project", root, "--format", "yaml"}, root, root)
@@ -131,8 +172,8 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit code = %d, want 0", code)
 			}
-			if !strings.Contains(stdout.String(), "agent-canon is read-only") || !strings.Contains(stdout.String(), "only plan --out writes") {
-				t.Fatalf("help output missing read-only/write boundary: %q", stdout.String())
+			if !strings.Contains(stdout.String(), "agent-canon preview write boundary") || !strings.Contains(stdout.String(), "only plan --out writes") || !strings.Contains(stdout.String(), "only export codex --out writes") || !strings.Contains(stdout.String(), "agent-canon export codex [flags]") {
+				t.Fatalf("help output missing preview write boundary or export codex usage: %q", stdout.String())
 			}
 			if stderr.String() != "" {
 				t.Fatalf("stderr = %q, want empty", stderr.String())

@@ -89,7 +89,6 @@ func hasWarningCode(warnings []model.Warning, code string) bool {
 
 func nonGoals() []string {
 	return []string{
-		"export",
 		"apply",
 		"sync",
 		"conflicts/resolve",
