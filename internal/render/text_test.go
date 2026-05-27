@@ -57,6 +57,65 @@ func TestApplyTextPropagatesWriteErrors(t *testing.T) {
 	}
 }
 
+func TestRollbackTextPrintsChangesAndRedactsWarnings(t *testing.T) {
+	var out strings.Builder
+	report := render.RollbackTextReport{
+		Target:       "codex",
+		Project:      "/repo",
+		Mode:         "dry-run",
+		BackupDir:    "/repo/.agent-canon/backups/apply-001",
+		ManifestPath: "/repo/.agent-canon/rollback/apply-001.json",
+		Changes: []model.ApplyFileChange{
+			{Path: "/repo/generated.md", Scope: model.ScopeProject, Action: model.ApplyActionCreate, AfterHash: "sha256:after"},
+			{Path: "/repo/AGENTS.md", Scope: model.ScopeProject, Action: model.ApplyActionModify, BeforeHash: "sha256:before", AfterHash: "sha256:after"},
+			{Path: "/home/.codex/config.toml", Scope: model.ScopeGlobal, Action: model.ApplyActionNoop, BeforeHash: "sha256:same", AfterHash: "sha256:same"},
+		},
+		Warnings: []model.Warning{{Code: "secret-redacted", Message: "GITHUB_TOKEN=" + fixtureSecret}},
+	}
+
+	if err := render.RollbackText(&out, report); err != nil {
+		t.Fatalf("RollbackText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"agent-canon rollback codex: dry-run",
+		"Project: /repo",
+		"Summary: restore=1 delete=1 noop=1 warnings=1",
+		"Backup: /repo/.agent-canon/backups/apply-001",
+		"Manifest: /repo/.agent-canon/rollback/apply-001.json",
+		"Rollback changes:",
+		"- delete [project] /repo/generated.md",
+		"- restore [project] /repo/AGENTS.md",
+		"- noop [global] /home/.codex/config.toml",
+		"GITHUB_TOKEN=" + security.RedactedValue,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("RollbackText output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, fixtureSecret) {
+		t.Fatalf("RollbackText leaked fixture secret:\n%s", text)
+	}
+}
+
+func TestRollbackTextPrintsAppliedMode(t *testing.T) {
+	var out strings.Builder
+	report := render.RollbackTextReport{Target: "codex", Project: "/repo", Mode: "applied"}
+	if err := render.RollbackText(&out, report); err != nil {
+		t.Fatalf("RollbackText returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "agent-canon rollback codex: applied") {
+		t.Fatalf("RollbackText output missing applied mode:\n%s", out.String())
+	}
+}
+
+func TestRollbackTextPropagatesWriteErrors(t *testing.T) {
+	err := render.RollbackText(failingWriter{}, render.RollbackTextReport{Target: "codex", Mode: "dry-run"})
+	if err == nil {
+		t.Fatalf("RollbackText returned nil error for failing writer")
+	}
+}
+
 func TestInitTextPrintsManifestSummaryAndRedactsWarnings(t *testing.T) {
 	var out strings.Builder
 	report := model.WorkspaceManifestReport{

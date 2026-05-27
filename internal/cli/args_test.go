@@ -385,6 +385,68 @@ func TestParseAcceptsValidLifecycleCommands(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsValidRollbackForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		dryRun     bool
+		yes        bool
+		global     bool
+		rollbackID string
+	}{
+		{name: "dry run", args: []string{"rollback", "apply-20260527T120000000000000Z", "--dry-run", "--project", root}, dryRun: true, rollbackID: "apply-20260527T120000000000000Z"},
+		{name: "yes global", args: []string{"rollback", "apply-20260527T120000000000000Z", "--yes", "--global", "--project", root}, yes: true, global: true, rollbackID: "apply-20260527T120000000000000Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, root, root)
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if opts.Command != "rollback" {
+				t.Fatalf("Command = %q, want rollback", opts.Command)
+			}
+			if opts.RollbackID != tc.rollbackID {
+				t.Fatalf("RollbackID = %q, want %q", opts.RollbackID, tc.rollbackID)
+			}
+			if opts.DryRun != tc.dryRun {
+				t.Fatalf("DryRun = %v, want %v", opts.DryRun, tc.dryRun)
+			}
+			if opts.Yes != tc.yes {
+				t.Fatalf("Yes = %v, want %v", opts.Yes, tc.yes)
+			}
+			if opts.Global != tc.global {
+				t.Fatalf("Global = %v, want %v", opts.Global, tc.global)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidRollbackForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing ID", args: []string{"rollback", "--project", root}},
+		{name: "extra arg", args: []string{"rollback", "apply-1", "extra", "--project", root}},
+		{name: "json format", args: []string{"rollback", "apply-1", "--format", "json", "--project", root}},
+		{name: "out", args: []string{"rollback", "apply-1", "--out", "rollback.json", "--project", root}},
+		{name: "include memory", args: []string{"rollback", "apply-1", "--include-memory", "--project", root}},
+		{name: "resolve flag", args: []string{"rollback", "apply-1", "--ours", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestParseRejectsInvalidLifecycleForms(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
@@ -493,6 +555,7 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon init [flags]",
 				"agent-canon status [flags]",
 				"agent-canon diff [codex] [flags]",
+				"agent-canon rollback <apply-id> [flags]",
 				"plan --out writes",
 				"export codex --out writes",
 				"sync/resolve write only project .agent-canon",

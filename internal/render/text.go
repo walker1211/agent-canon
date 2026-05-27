@@ -376,6 +376,72 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 	return nil
 }
 
+type RollbackTextReport struct {
+	Target       string
+	Project      string
+	Mode         string
+	BackupDir    string
+	ManifestPath string
+	Changes      []model.ApplyFileChange
+	Warnings     []model.Warning
+}
+
+func RollbackText(writer io.Writer, report RollbackTextReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon rollback %s: %s", report.Target, report.Mode); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	restore, deleteCount, noop := rollbackActionCounts(report.Changes)
+	if err := out.line("Summary: restore=%d delete=%d noop=%d warnings=%d", restore, deleteCount, noop, len(report.Warnings)); err != nil {
+		return err
+	}
+	if report.BackupDir != "" {
+		if err := out.line("Backup: %s", report.BackupDir); err != nil {
+			return err
+		}
+	}
+	if report.ManifestPath != "" {
+		if err := out.line("Manifest: %s", report.ManifestPath); err != nil {
+			return err
+		}
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Rollback changes:"); err != nil {
+		return err
+	}
+	if len(report.Changes) == 0 {
+		if err := out.line("- none"); err != nil {
+			return err
+		}
+	}
+	for _, change := range report.Changes {
+		if err := out.line("- %s [%s] %s", rollbackOperation(change.Action), change.Scope, change.Path); err != nil {
+			return err
+		}
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func VerifyText(writer io.Writer, report model.VerifyReport) error {
 	out := textWriter{writer: writer}
 	if err := out.line("agent-canon verify %s", report.Target); err != nil {
@@ -441,6 +507,36 @@ func applyActionCounts(changes []model.ApplyFileChange) (int, int, int) {
 		}
 	}
 	return create, modify, noop
+}
+
+func rollbackActionCounts(changes []model.ApplyFileChange) (int, int, int) {
+	restore := 0
+	deleteCount := 0
+	noop := 0
+	for _, change := range changes {
+		switch change.Action {
+		case model.ApplyActionCreate:
+			deleteCount++
+		case model.ApplyActionModify:
+			restore++
+		case model.ApplyActionNoop:
+			noop++
+		}
+	}
+	return restore, deleteCount, noop
+}
+
+func rollbackOperation(action model.ApplyAction) string {
+	switch action {
+	case model.ApplyActionCreate:
+		return "delete"
+	case model.ApplyActionModify:
+		return "restore"
+	case model.ApplyActionNoop:
+		return "noop"
+	default:
+		return string(action)
+	}
 }
 
 func actionOrder(operations []model.Operation) []string {

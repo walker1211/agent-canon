@@ -141,6 +141,104 @@ func TestSaveRollbackManifestWritesExpectedFile(t *testing.T) {
 	assertFileContents(t, wantPath, "{\n  \"target\": \"codex\"\n}\n")
 }
 
+func TestLoadRollbackManifestReturnsExpectedPathAndDecodedReport(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	savedPath, err := layout.SaveRollbackManifest("apply-001", map[string]string{"target": "codex"})
+	if err != nil {
+		t.Fatalf("SaveRollbackManifest returned error: %v", err)
+	}
+
+	var got map[string]string
+	loadedPath, err := layout.LoadRollbackManifest("apply-001", &got)
+	if err != nil {
+		t.Fatalf("LoadRollbackManifest returned error: %v", err)
+	}
+	if loadedPath != savedPath {
+		t.Fatalf("loaded path = %q, want %q", loadedPath, savedPath)
+	}
+	if got["target"] != "codex" {
+		t.Fatalf("manifest = %#v, want target codex", got)
+	}
+}
+
+func TestLoadRollbackManifestReturnsErrNotFoundForMissingFile(t *testing.T) {
+	layout, err := workspace.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	var got map[string]any
+	_, err = layout.LoadRollbackManifest("apply-missing", &got)
+	if !errors.Is(err, workspace.ErrNotFound) {
+		t.Fatalf("LoadRollbackManifest error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLoadRollbackManifestFailsWhenRollbackDirSymlinkEscapesProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "apply-001.json"), []byte("{\"target\":\"outside\"}\n"), 0o644); err != nil {
+		t.Fatalf("write outside manifest: %v", err)
+	}
+	if err := os.MkdirAll(layout.Root, 0o755); err != nil {
+		t.Fatalf("create workspace root: %v", err)
+	}
+	if err := os.Symlink(outside, layout.RollbackDir); err != nil {
+		t.Fatalf("create rollback symlink: %v", err)
+	}
+
+	var got map[string]string
+	_, err = layout.LoadRollbackManifest("apply-001", &got)
+	if err == nil {
+		t.Fatalf("LoadRollbackManifest returned nil error for escaping rollback symlink")
+	}
+	if !strings.Contains(err.Error(), "project") {
+		t.Fatalf("error missing project boundary context: %v", err)
+	}
+	if got["target"] == "outside" {
+		t.Fatalf("LoadRollbackManifest read outside manifest")
+	}
+}
+
+func TestLoadRollbackManifestFailsWhenManifestFileSymlinkEscapesProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	outsideManifest := filepath.Join(outside, "apply-001.json")
+	if err := os.WriteFile(outsideManifest, []byte("{\"target\":\"outside\"}\n"), 0o644); err != nil {
+		t.Fatalf("write outside manifest: %v", err)
+	}
+	if err := os.MkdirAll(layout.RollbackDir, 0o755); err != nil {
+		t.Fatalf("create rollback dir: %v", err)
+	}
+	if err := os.Symlink(outsideManifest, filepath.Join(layout.RollbackDir, "apply-001.json")); err != nil {
+		t.Fatalf("create rollback manifest symlink: %v", err)
+	}
+
+	var got map[string]string
+	_, err = layout.LoadRollbackManifest("apply-001", &got)
+	if err == nil {
+		t.Fatalf("LoadRollbackManifest returned nil error for escaping manifest symlink")
+	}
+	if !strings.Contains(err.Error(), "project") && !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("error missing boundary context: %v", err)
+	}
+	if got["target"] == "outside" {
+		t.Fatalf("LoadRollbackManifest read outside manifest")
+	}
+}
+
 func TestBackupDirReturnsSafeProjectLocalDirectory(t *testing.T) {
 	project := t.TempDir()
 	layout, err := workspace.New(project)
@@ -171,6 +269,10 @@ func TestWorkspaceDynamicNamesRejectUnsafeSegments(t *testing.T) {
 			}
 			if _, err := layout.SaveRollbackManifest(name, map[string]string{"target": "codex"}); err == nil {
 				t.Fatalf("SaveRollbackManifest(%q) returned nil error", name)
+			}
+			var dest map[string]any
+			if _, err := layout.LoadRollbackManifest(name, &dest); err == nil {
+				t.Fatalf("LoadRollbackManifest(%q) returned nil error", name)
 			}
 		})
 	}

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, apply, verify, and workspace lifecycle tool.
+const helpText = `agent-canon is a migration inventory, plan, sync, conflict, preview export, apply, verify, workspace lifecycle, and rollback tool.
 
-Write boundary: scan, status, diff, conflicts, and verify are read-only; init writes only project .agent-canon; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation.
+Write boundary: scan, status, diff, conflicts, and verify are read-only; init writes only project .agent-canon; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
 
 Usage:
   agent-canon init [flags]
@@ -28,6 +28,7 @@ Usage:
   agent-canon resolve <conflict-id> --manual <value>
   agent-canon apply codex [flags]
   agent-canon apply claude [flags]
+  agent-canon rollback <apply-id> [flags]
   agent-canon verify codex [flags]
   agent-canon verify claude [flags]
 
@@ -43,6 +44,7 @@ Commands:
   resolve       Resolve one conflict; writes only project .agent-canon
   apply codex   Apply Codex target files after conflict checks, backup, and confirmation
   apply claude  Unsupported in agent-canon; Codex -> Claude import is not implemented yet
+  rollback      Roll back one apply codex manifest after drift checks and confirmation
   verify codex  Read-only validation of Codex targets, skills, MCP hints, and conflict state
   verify claude Read-only validation of Claude targets, settings, and conflict state
 
@@ -55,9 +57,9 @@ Flags:
   --format string        init/scan/status/diff/plan/sync/conflicts/verify output format: text or json (default "text")
   --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
   --include-memory       scan/plan/sync/diff/verify memory indexes and candidates only; does not migrate content
-  --dry-run              apply codex: show planned changes without writing
-  --yes                  apply codex: skip interactive confirmation
-  --global               apply codex: allow writes under --codex-home
+  --dry-run              apply codex/rollback: show planned changes without writing
+  --yes                  apply codex/rollback: skip interactive confirmation
+  --global               apply codex/rollback: allow writes under --codex-home
 `
 
 type Options struct {
@@ -69,6 +71,7 @@ type Options struct {
 	ResolveDecision string
 	ManualValue     string
 	ApplyTarget     string
+	RollbackID      string
 	VerifyTarget    string
 	DiffTarget      string
 	From            string
@@ -112,7 +115,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "init" && command != "scan" && command != "status" && command != "diff" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "verify" {
+	if command != "init" && command != "scan" && command != "status" && command != "diff" && command != "plan" && command != "export" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "rollback" && command != "verify" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
@@ -121,6 +124,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	syncTarget := ""
 	conflictID := ""
 	applyTarget := ""
+	rollbackID := ""
 	verifyTarget := ""
 	diffTarget := ""
 	flagArgs := args[1:]
@@ -168,6 +172,12 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 			return Options{}, usageError{message: fmt.Sprintf("unsupported apply target %q", applyTarget), code: 1}
 		}
 		flagArgs = flagArgs[1:]
+	case "rollback":
+		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
+			return Options{}, usageError{message: "rollback requires apply ID", code: 1}
+		}
+		rollbackID = flagArgs[0]
+		flagArgs = flagArgs[1:]
 	case "verify":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
 			return Options{}, usageError{message: "verify requires target codex or claude", code: 1}
@@ -186,6 +196,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		SyncTarget:   syncTarget,
 		ConflictID:   conflictID,
 		ApplyTarget:  applyTarget,
+		RollbackID:   rollbackID,
 		VerifyTarget: verifyTarget,
 		DiffTarget:   diffTarget,
 		From:         "claude",
@@ -207,9 +218,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.StringVar(&opts.Format, "format", opts.Format, "output format")
 	flags.StringVar(&opts.Out, "out", opts.Out, "plan output path")
 	flags.BoolVar(&opts.IncludeMemory, "include-memory", opts.IncludeMemory, "include memory candidates")
-	flags.BoolVar(&opts.DryRun, "dry-run", opts.DryRun, "show planned apply changes without writing")
-	flags.BoolVar(&opts.Yes, "yes", opts.Yes, "skip apply confirmation")
-	flags.BoolVar(&opts.Global, "global", opts.Global, "allow apply writes under --codex-home")
+	flags.BoolVar(&opts.DryRun, "dry-run", opts.DryRun, "show planned apply or rollback changes without writing")
+	flags.BoolVar(&opts.Yes, "yes", opts.Yes, "skip apply or rollback confirmation")
+	flags.BoolVar(&opts.Global, "global", opts.Global, "allow apply or rollback writes under --codex-home")
 	resolveOurs := false
 	resolveTheirs := false
 	resolveAcceptSuggestion := false
@@ -230,8 +241,11 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	if opts.Format != "text" && opts.Format != "json" {
 		return Options{}, usageError{message: "--format must be text or json", code: 1}
 	}
-	if (opts.Command == "init" || opts.Command == "status") && flagWasSet(flags, "include-memory") {
+	if flagWasSet(flags, "include-memory") && opts.Command != "scan" && opts.Command != "plan" && opts.Command != "sync" && opts.Command != "diff" && opts.Command != "verify" {
 		return Options{}, usageError{message: "--include-memory is supported only for scan, plan, sync, diff, and verify", code: 1}
+	}
+	if opts.Command == "rollback" && opts.Format != "text" {
+		return Options{}, usageError{message: "--format json is not supported for rollback", code: 1}
 	}
 	if opts.Command == "resolve" && flagWasSet(flags, "format") {
 		return Options{}, usageError{message: "--format is not supported for resolve", code: 1}
@@ -333,12 +347,12 @@ func flagWasSet(flags *flag.FlagSet, name string) bool {
 }
 
 func validateApplyFlags(command string, flags *flag.FlagSet) error {
-	if command == "apply" {
+	if command == "apply" || command == "rollback" {
 		return nil
 	}
 	for _, name := range []string{"dry-run", "yes", "global"} {
 		if flagWasSet(flags, name) {
-			return usageError{message: fmt.Sprintf("--%s is supported only for apply codex", name), code: 1}
+			return usageError{message: fmt.Sprintf("--%s is supported only for apply codex or rollback", name), code: 1}
 		}
 	}
 	return nil

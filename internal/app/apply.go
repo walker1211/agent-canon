@@ -84,7 +84,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	baseSnapshots, err := advanceApplyBaseline(opts, layout, codexPlan.Warnings)
+	baseSnapshots, err := refreshBaselineAfterFilesystemChange(opts, layout, codexPlan.Warnings)
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -104,7 +104,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: codexPlan.Warnings})
 }
 
-func advanceApplyBaseline(opts cli.Options, layout workspace.Layout, applyWarnings []model.Warning) (map[string]string, error) {
+func refreshBaselineAfterFilesystemChange(opts cli.Options, layout workspace.Layout, applyWarnings []model.Warning) (map[string]string, error) {
 	scanReport, err := scanner.Scan(scanner.Options{Project: opts.Project, ClaudeHome: opts.ClaudeHome, CodexHome: opts.CodexHome, IncludeMemory: opts.IncludeMemory})
 	if err != nil {
 		return nil, err

@@ -189,6 +189,34 @@ func (l Layout) SaveRollbackManifest(name string, value any) (string, error) {
 	return path, l.writeJSONFile(path, value)
 }
 
+func (l Layout) LoadRollbackManifest(name string, dest any) (string, error) {
+	path, err := l.RollbackManifestPath(name)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return path, fmt.Errorf("%w: %s", ErrNotFound, path)
+	}
+	if err != nil {
+		return path, fmt.Errorf("inspect workspace file %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return path, fmt.Errorf("workspace file %s must not be a symlink", path)
+	}
+	if info.IsDir() {
+		return path, fmt.Errorf("workspace file %s must not be a directory", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return path, fmt.Errorf("read workspace file %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, dest); err != nil {
+		return path, fmt.Errorf("unmarshal workspace JSON %s: %w", path, err)
+	}
+	return path, nil
+}
+
 func (l Layout) writeJSON(path string, canonicalPath string, value any) error {
 	if err := l.validateKnownPath(path, canonicalPath); err != nil {
 		return err
