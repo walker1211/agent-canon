@@ -568,6 +568,10 @@ func TestConflictsTextPrintsConflictsAndRedactsWarnings(t *testing.T) {
 			Kind:         model.ConflictKindContent,
 			ResourceID:   "instruction:project-claude-md",
 			ResourceKind: model.KindInstruction,
+			Scope:        model.ScopeProject,
+			Base:         &model.ResourceState{Path: "/repo/CLAUDE.md", Status: model.StatusCompatible, Strategy: "merge-instructions", ContentHash: "sha256:base"},
+			Ours:         &model.ResourceState{Path: "/repo/CLAUDE.md", Status: model.StatusCompatible, Strategy: "merge-instructions", ContentHash: "sha256:ours"},
+			Theirs:       &model.ResourceState{Path: "/repo/AGENTS.md", Status: model.StatusCompatible, Strategy: "merge-instructions", ContentHash: "sha256:theirs"},
 			Status:       model.ConflictStatusOpen,
 		}},
 		Summary:  model.SyncSummary{Diffs: 1, OpenConflicts: 1, ResolvedConflicts: 0, Warnings: 1},
@@ -583,8 +587,16 @@ func TestConflictsTextPrintsConflictsAndRedactsWarnings(t *testing.T) {
 		"Project: /repo",
 		"Summary: open=1 resolved=0 diffs=1 warnings=1",
 		"Open conflicts:",
-		"- conflict-001 ContentConflict instruction:project-claude-md [Instruction]",
+		"- conflict-001 ContentConflict instruction:project-claude-md [Instruction] scope=project",
+		"  why: both sides changed content differently",
+		"  base: hash=sha256:base path=/repo/CLAUDE.md status=compatible strategy=merge-instructions",
+		"  ours: hash=sha256:ours path=/repo/CLAUDE.md status=compatible strategy=merge-instructions",
+		"  theirs: hash=sha256:theirs path=/repo/AGENTS.md status=compatible strategy=merge-instructions",
 		"Resolved conflicts: 0",
+		"Next steps:",
+		"- Keep Claude side: `agent-canon resolve conflict-001 --ours`",
+		"- Keep Codex side: `agent-canon resolve conflict-001 --theirs`",
+		"- Write a manual value: `agent-canon resolve conflict-001 --manual <value>`",
 		"Warnings:",
 		"- warning[secret]: token=" + security.RedactedValue,
 	} {
@@ -594,6 +606,39 @@ func TestConflictsTextPrintsConflictsAndRedactsWarnings(t *testing.T) {
 	}
 	if strings.Contains(text, fixtureSecret) {
 		t.Fatalf("ConflictsText leaked fixture secret:\n%s", text)
+	}
+}
+
+func TestConflictsTextPrintsSuggestionNextStep(t *testing.T) {
+	var out strings.Builder
+	report := model.SyncStateReport{
+		Source:  "claude",
+		Target:  "codex",
+		Project: "/repo",
+		Conflicts: []model.Conflict{{
+			ID:                   "conflict-001",
+			Kind:                 model.ConflictKindSemantic,
+			ResourceID:           "instruction:project-claude-md",
+			ResourceKind:         model.KindInstruction,
+			Scope:                model.ScopeProject,
+			Suggestion:           "merged instruction text",
+			SuggestionConfidence: 0.82,
+			Status:               model.ConflictStatusOpen,
+		}},
+		Summary: model.SyncSummary{Diffs: 1, OpenConflicts: 1},
+	}
+
+	if err := render.ConflictsText(&out, report); err != nil {
+		t.Fatalf("ConflictsText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"  suggestion: confidence=0.82",
+		"- Accept suggestion: `agent-canon resolve conflict-001 --accept-suggestion`",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ConflictsText output missing %q:\n%s", want, text)
+		}
 	}
 }
 

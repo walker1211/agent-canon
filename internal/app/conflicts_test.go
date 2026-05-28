@@ -38,8 +38,13 @@ func TestRunConflictsTextListsOpenConflicts(t *testing.T) {
 		"Project: " + fixture.project,
 		"Summary: open=1 resolved=0 diffs=1",
 		"Open conflicts:",
-		"- conflict-001 ContentConflict instruction:project-claude-md [Instruction]",
+		"- conflict-001 ContentConflict instruction:project-claude-md [Instruction] scope=project",
+		"why: both sides changed content differently",
 		"Resolved conflicts: 0",
+		"Next steps:",
+		"agent-canon resolve conflict-001 --ours",
+		"agent-canon resolve conflict-001 --theirs",
+		"agent-canon resolve conflict-001 --manual <value>",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q in %q", want, stdout.String())

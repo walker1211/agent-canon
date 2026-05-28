@@ -318,17 +318,38 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 	if err := out.line("Open conflicts:"); err != nil {
 		return err
 	}
-	found := false
+	firstOpenID := ""
+	firstOpenHasSuggestion := false
 	for _, conflict := range report.Conflicts {
 		if conflict.Status != model.ConflictStatusOpen {
 			continue
 		}
-		found = true
-		if err := out.line("- %s %s %s [%s]", conflict.ID, conflict.Kind, conflict.ResourceID, conflict.ResourceKind); err != nil {
+		if firstOpenID == "" {
+			firstOpenID = conflict.ID
+			firstOpenHasSuggestion = conflict.Suggestion != ""
+		}
+		if err := out.line("- %s %s %s [%s] scope=%s", conflict.ID, conflict.Kind, conflict.ResourceID, conflict.ResourceKind, conflict.Scope); err != nil {
 			return err
 		}
+		if err := out.line("  why: %s", conflictReason(conflict.Kind)); err != nil {
+			return err
+		}
+		for _, summary := range []string{
+			conflictSideSummary("base", conflict.Base),
+			conflictSideSummary("ours", conflict.Ours),
+			conflictSideSummary("theirs", conflict.Theirs),
+		} {
+			if err := out.line("  %s", summary); err != nil {
+				return err
+			}
+		}
+		if conflict.Suggestion != "" {
+			if err := out.line("  suggestion: confidence=%.2f", conflict.SuggestionConfidence); err != nil {
+				return err
+			}
+		}
 	}
-	if !found {
+	if firstOpenID == "" {
 		if err := out.line("- none"); err != nil {
 			return err
 		}
@@ -339,7 +360,86 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 	if err := out.line("Resolved conflicts: %d", report.Summary.ResolvedConflicts); err != nil {
 		return err
 	}
+	if firstOpenID != "" {
+		if err := writeConflictNextSteps(out, report.Source, report.Target, firstOpenID, firstOpenHasSuggestion); err != nil {
+			return err
+		}
+	}
 	return writeWarnings(out, report.Warnings)
+}
+
+func conflictReason(kind model.ConflictKind) string {
+	switch kind {
+	case model.ConflictKindSecurity:
+		return "security-sensitive resource or redacted secret changed"
+	case model.ConflictKindCapability:
+		return "unsupported capability, hook, or session resource changed"
+	case model.ConflictKindContent:
+		return "both sides changed content differently"
+	case model.ConflictKindLocation:
+		return "resource location changed"
+	case model.ConflictKindSemantic:
+		return "semantic meaning differs"
+	default:
+		return "review both sides before resolving"
+	}
+}
+
+func conflictSideSummary(label string, state *model.ResourceState) string {
+	if state == nil {
+		return fmt.Sprintf("%s: missing", label)
+	}
+	path, _ := security.RedactContent(state.Path)
+	if path == "" {
+		path = "none"
+	}
+	strategy, _ := security.RedactContent(state.Strategy)
+	if strategy == "" {
+		strategy = "none"
+	}
+	return fmt.Sprintf("%s: hash=%s path=%s status=%s strategy=%s", label, conflictHash(state.ContentHash), path, state.Status, strategy)
+}
+
+func conflictHash(hash string) string {
+	if hash == "" {
+		return "none"
+	}
+	if len(hash) > 24 {
+		return hash[:24]
+	}
+	return hash
+}
+
+func writeConflictNextSteps(out textWriter, source string, target string, conflictID string, hasSuggestion bool) error {
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Next steps:"); err != nil {
+		return err
+	}
+	if err := out.line("- Keep %s side: `agent-canon resolve %s --ours`", toolLabel(source), conflictID); err != nil {
+		return err
+	}
+	if err := out.line("- Keep %s side: `agent-canon resolve %s --theirs`", toolLabel(target), conflictID); err != nil {
+		return err
+	}
+	if hasSuggestion {
+		if err := out.line("- Accept suggestion: `agent-canon resolve %s --accept-suggestion`", conflictID); err != nil {
+			return err
+		}
+	}
+	return out.line("- Write a manual value: `agent-canon resolve %s --manual <value>`", conflictID)
+}
+
+func toolLabel(tool string) string {
+	switch tool {
+	case "claude":
+		return "Claude"
+	case "codex":
+		return "Codex"
+	default:
+		return tool
+	}
 }
 
 func ResolveText(writer io.Writer, conflictID string, decision model.ResolutionDecision, resolutionID string) error {
