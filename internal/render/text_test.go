@@ -50,6 +50,29 @@ func TestApplyTextPrintsChangedFilesAndRedactsWarnings(t *testing.T) {
 	}
 }
 
+func TestApplyTextDryRunPrintsNoWriteNote(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:  "codex",
+		Project: "/repo",
+		Mode:    "dry-run",
+		Changes: []model.ApplyFileChange{{Path: "/home/.codex/config.toml", Scope: model.ScopeGlobal, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"Dry-run: no files were written.",
+		"Backup and rollback manifest are created only when apply runs without --dry-run.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ApplyText dry-run output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestApplyTextPropagatesWriteErrors(t *testing.T) {
 	err := render.ApplyText(failingWriter{}, render.ApplyTextReport{Target: "codex", Mode: "dry-run"})
 	if err == nil {

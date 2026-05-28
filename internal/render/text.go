@@ -407,6 +407,14 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 	if err := out.line("Summary: create=%d modify=%d noop=%d warnings=%d", create, modify, noop, len(report.Warnings)); err != nil {
 		return err
 	}
+	if report.Mode == "dry-run" {
+		if err := out.line("Dry-run: no files were written."); err != nil {
+			return err
+		}
+		if err := out.line("Backup and rollback manifest are created only when apply runs without --dry-run."); err != nil {
+			return err
+		}
+	}
 	if report.BackupDir != "" {
 		if err := out.line("Backup: %s", report.BackupDir); err != nil {
 			return err
