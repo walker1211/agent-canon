@@ -483,6 +483,36 @@ func TestApplyFileChangeOmitsEmptyBackupAndBeforeHash(t *testing.T) {
 	assertMissingKey(t, got, "beforeHash")
 }
 
+func TestImportReportMarshalsSummaryAndPaths(t *testing.T) {
+	report := ImportReport{
+		SchemaVersion: ImportSchemaVersion,
+		CreatedAt:     "2026-05-27T10:06:00Z",
+		Project:       "/repo",
+		Tool:          "codex",
+		WorkspaceRoot: "/repo/.agent-canon",
+		SnapshotPath:  "/repo/.agent-canon/base/codex.snapshot.json",
+		ReportPath:    "/repo/.agent-canon/imports/codex.import.json",
+		Summary:       ImportSummary{Resources: 2, Warnings: 1},
+		Warnings:      []Warning{{Code: "import", Message: "warning surfaced"}},
+	}
+
+	got := marshalToMap(t, report)
+
+	assertString(t, got, "schemaVersion", "agent-canon.import.v1")
+	assertString(t, got, "createdAt", "2026-05-27T10:06:00Z")
+	assertString(t, got, "project", "/repo")
+	assertString(t, got, "tool", "codex")
+	assertString(t, got, "workspaceRoot", "/repo/.agent-canon")
+	assertString(t, got, "snapshotPath", "/repo/.agent-canon/base/codex.snapshot.json")
+	assertString(t, got, "reportPath", "/repo/.agent-canon/imports/codex.import.json")
+	assertHasKey(t, got, "summary")
+	assertHasKey(t, got, "warnings")
+
+	summary := got["summary"].(map[string]any)
+	assertNumber(t, summary, "resources", 2)
+	assertNumber(t, summary, "warnings", 1)
+}
+
 func TestWorkspaceManifestReportMarshalsMetadata(t *testing.T) {
 	report := WorkspaceManifestReport{
 		SchemaVersion: WorkspaceManifestSchemaVersion,

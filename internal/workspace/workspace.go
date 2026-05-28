@@ -30,6 +30,8 @@ type Layout struct {
 	LearnedResolutions string
 	BackupsDir         string
 	RollbackDir        string
+	ImportsDir         string
+	ImportCodex        string
 
 	paths layoutPaths
 }
@@ -47,6 +49,8 @@ type layoutPaths struct {
 	LearnedResolutions string
 	BackupsDir         string
 	RollbackDir        string
+	ImportsDir         string
+	ImportCodex        string
 }
 
 func New(project string) (Layout, error) {
@@ -67,6 +71,8 @@ func New(project string) (Layout, error) {
 		LearnedResolutions: paths.LearnedResolutions,
 		BackupsDir:         paths.BackupsDir,
 		RollbackDir:        paths.RollbackDir,
+		ImportsDir:         paths.ImportsDir,
+		ImportCodex:        paths.ImportCodex,
 		paths:              paths,
 	}, nil
 }
@@ -87,6 +93,7 @@ func newLayoutPaths(project string) (layoutPaths, error) {
 	resolutions := filepath.Join(root, "resolutions")
 	backups := filepath.Join(root, "backups")
 	rollback := filepath.Join(root, "rollback")
+	imports := filepath.Join(root, "imports")
 	return layoutPaths{
 		Project:            cleanProject,
 		Root:               root,
@@ -100,6 +107,8 @@ func newLayoutPaths(project string) (layoutPaths, error) {
 		LearnedResolutions: filepath.Join(resolutions, "learned-resolutions.json"),
 		BackupsDir:         backups,
 		RollbackDir:        rollback,
+		ImportsDir:         imports,
+		ImportCodex:        filepath.Join(imports, "codex.import.json"),
 	}, nil
 }
 
@@ -149,6 +158,14 @@ func (l Layout) SaveLearnedResolutions(value any) error {
 
 func (l Layout) LoadLearnedResolutions(dest any) error {
 	return l.readJSON(l.LearnedResolutions, l.paths.LearnedResolutions, dest)
+}
+
+func (l Layout) SaveImportCodex(value any) error {
+	return l.writeJSON(l.ImportCodex, l.paths.ImportCodex, value)
+}
+
+func (l Layout) LoadImportCodex(dest any) error {
+	return l.readJSON(l.ImportCodex, l.paths.ImportCodex, dest)
 }
 
 func (l Layout) BackupDir(name string) (string, error) {
@@ -291,7 +308,7 @@ func (l Layout) validateKnownPath(path string, canonicalPath string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Contains([]string{known.Manifest, known.BaseClaude, known.BaseCodex, known.BaseCanon, known.SyncState, known.LearnedResolutions}, canonicalPath) {
+	if !slices.Contains([]string{known.Manifest, known.BaseClaude, known.BaseCodex, known.BaseCanon, known.SyncState, known.LearnedResolutions, known.ImportCodex}, canonicalPath) {
 		return fmt.Errorf("workspace path %s is not a known layout path", canonicalPath)
 	}
 	if filepath.Clean(path) != canonicalPath {

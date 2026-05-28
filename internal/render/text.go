@@ -310,6 +310,44 @@ func ResolveText(writer io.Writer, conflictID string, decision model.ResolutionD
 	return out.line("resolved %s with %s as %s", conflictID, decision, resolutionID)
 }
 
+func ImportText(writer io.Writer, report model.ImportReport) error {
+	out := textWriter{writer: writer}
+	if err := out.line("agent-canon import %s", report.Tool); err != nil {
+		return err
+	}
+	if err := out.line("Project: %s", report.Project); err != nil {
+		return err
+	}
+	if err := out.line("Workspace: %s", report.WorkspaceRoot); err != nil {
+		return err
+	}
+	if err := out.line("Snapshot: %s", report.SnapshotPath); err != nil {
+		return err
+	}
+	if err := out.line("Report: %s", report.ReportPath); err != nil {
+		return err
+	}
+	if err := out.line("Summary: resources=%d warnings=%d", report.Summary.Resources, report.Summary.Warnings); err != nil {
+		return err
+	}
+	if len(report.Warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type ApplyTextReport struct {
 	Target       string
 	Project      string

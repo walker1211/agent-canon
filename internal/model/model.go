@@ -13,6 +13,7 @@ const (
 	StatusSchemaVersion             = "agent-canon.status.v1"
 	DiffSchemaVersion               = "agent-canon.diff.v1"
 	VerifySchemaVersion             = "agent-canon.verify.v1"
+	ImportSchemaVersion             = "agent-canon.import.v1"
 )
 
 type Status string
@@ -282,6 +283,23 @@ type RollbackManifestReport struct {
 	Changes       []ApplyFileChange `json:"changes"`
 	BaseSnapshots map[string]string `json:"baseSnapshots"`
 	Warnings      []Warning         `json:"warnings"`
+}
+
+type ImportSummary struct {
+	Resources int `json:"resources"`
+	Warnings  int `json:"warnings"`
+}
+
+type ImportReport struct {
+	SchemaVersion string        `json:"schemaVersion"`
+	CreatedAt     string        `json:"createdAt"`
+	Project       string        `json:"project"`
+	Tool          string        `json:"tool"`
+	WorkspaceRoot string        `json:"workspaceRoot"`
+	SnapshotPath  string        `json:"snapshotPath"`
+	ReportPath    string        `json:"reportPath"`
+	Summary       ImportSummary `json:"summary"`
+	Warnings      []Warning     `json:"warnings"`
 }
 
 type WorkspaceManifestReport struct {

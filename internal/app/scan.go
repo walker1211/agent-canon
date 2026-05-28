@@ -60,6 +60,9 @@ func RunEWithIO(args []string, cwd string, homeDir string, stdin io.Reader, stdo
 	if opts.Command == "export" {
 		return runExport(opts, stdout)
 	}
+	if opts.Command == "import" {
+		return runImport(opts, stdout)
+	}
 	if opts.Command == "sync" {
 		return runSync(opts, stdout)
 	}

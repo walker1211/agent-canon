@@ -289,6 +289,66 @@ func TestParseRejectsInvalidApplyForms(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsValidImportCodexForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		format string
+		memory bool
+	}{
+		{name: "text", args: []string{"import", "codex", "--project", root}, format: "text"},
+		{name: "json memory", args: []string{"import", "codex", "--format", "json", "--include-memory", "--project", root}, format: "json", memory: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, root, root)
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if opts.Command != "import" {
+				t.Fatalf("Command = %q, want import", opts.Command)
+			}
+			if opts.ImportTarget != "codex" {
+				t.Fatalf("ImportTarget = %q, want codex", opts.ImportTarget)
+			}
+			if opts.Format != tc.format {
+				t.Fatalf("Format = %q, want %q", opts.Format, tc.format)
+			}
+			if opts.IncludeMemory != tc.memory {
+				t.Fatalf("IncludeMemory = %v, want %v", opts.IncludeMemory, tc.memory)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidImportForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing target", args: []string{"import", "--project", root}},
+		{name: "claude unsupported", args: []string{"import", "claude", "--project", root}},
+		{name: "unsupported target", args: []string{"import", "other", "--project", root}},
+		{name: "extra arg", args: []string{"import", "codex", "extra", "--project", root}},
+		{name: "out", args: []string{"import", "codex", "--out", "report.json", "--project", root}},
+		{name: "dry run", args: []string{"import", "codex", "--dry-run", "--project", root}},
+		{name: "yes", args: []string{"import", "codex", "--yes", "--project", root}},
+		{name: "global", args: []string{"import", "codex", "--global", "--project", root}},
+		{name: "resolve flag", args: []string{"import", "codex", "--ours", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestParseAcceptsValidVerifyTargetsAndFlags(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
@@ -556,6 +616,7 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon status [flags]",
 				"agent-canon diff [codex] [flags]",
 				"agent-canon rollback <apply-id> [flags]",
+				"agent-canon import codex [flags]",
 				"plan --out writes",
 				"export codex --out writes",
 				"sync/resolve write only project .agent-canon",

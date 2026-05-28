@@ -36,6 +36,10 @@ func VerifyJSON(writer io.Writer, report model.VerifyReport) error {
 	return writeJSON(writer, report)
 }
 
+func ImportJSON(writer io.Writer, report model.ImportReport) error {
+	return writeJSON(writer, report)
+}
+
 func writeJSON(writer io.Writer, value any) error {
 	payload, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

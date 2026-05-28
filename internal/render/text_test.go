@@ -116,6 +116,74 @@ func TestRollbackTextPropagatesWriteErrors(t *testing.T) {
 	}
 }
 
+func TestImportTextPrintsSummaryPathsAndRedactsWarnings(t *testing.T) {
+	var out strings.Builder
+	report := model.ImportReport{
+		SchemaVersion: model.ImportSchemaVersion,
+		Project:       "/repo",
+		Tool:          "codex",
+		WorkspaceRoot: "/repo/.agent-canon",
+		SnapshotPath:  "/repo/.agent-canon/base/codex.snapshot.json",
+		ReportPath:    "/repo/.agent-canon/imports/codex.import.json",
+		Summary:       model.ImportSummary{Resources: 2, Warnings: 1},
+		Warnings:      []model.Warning{{Code: "secret-redacted", Message: "GITHUB_TOKEN=" + fixtureSecret}},
+	}
+
+	if err := render.ImportText(&out, report); err != nil {
+		t.Fatalf("ImportText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"agent-canon import codex",
+		"Project: /repo",
+		"Workspace: /repo/.agent-canon",
+		"Snapshot: /repo/.agent-canon/base/codex.snapshot.json",
+		"Report: /repo/.agent-canon/imports/codex.import.json",
+		"Summary: resources=2 warnings=1",
+		"Warnings:",
+		"- warning[secret-redacted]: GITHUB_TOKEN=" + security.RedactedValue,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ImportText output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, fixtureSecret) {
+		t.Fatalf("ImportText leaked fixture secret:\n%s", text)
+	}
+}
+
+func TestImportTextPropagatesWriteErrors(t *testing.T) {
+	err := render.ImportText(failingWriter{}, model.ImportReport{Tool: "codex"})
+	if err == nil {
+		t.Fatalf("ImportText returned nil error for failing writer")
+	}
+}
+
+func TestImportJSONWritesReportShape(t *testing.T) {
+	var out strings.Builder
+	report := model.ImportReport{
+		SchemaVersion: model.ImportSchemaVersion,
+		Project:       "/repo",
+		Tool:          "codex",
+		WorkspaceRoot: "/repo/.agent-canon",
+		SnapshotPath:  "/repo/.agent-canon/base/codex.snapshot.json",
+		ReportPath:    "/repo/.agent-canon/imports/codex.import.json",
+		Summary:       model.ImportSummary{Resources: 2, Warnings: 0},
+		Warnings:      []model.Warning{},
+	}
+
+	if err := render.ImportJSON(&out, report); err != nil {
+		t.Fatalf("ImportJSON returned error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out.String()), &got); err != nil {
+		t.Fatalf("ImportJSON emitted invalid JSON: %v\n%s", err, out.String())
+	}
+	if got["schemaVersion"] != "agent-canon.import.v1" || got["tool"] != "codex" || got["snapshotPath"] != "/repo/.agent-canon/base/codex.snapshot.json" || got["reportPath"] != "/repo/.agent-canon/imports/codex.import.json" {
+		t.Fatalf("ImportJSON output = %#v", got)
+	}
+}
+
 func TestInitTextPrintsManifestSummaryAndRedactsWarnings(t *testing.T) {
 	var out strings.Builder
 	report := model.WorkspaceManifestReport{

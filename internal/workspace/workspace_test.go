@@ -24,6 +24,7 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 	resolutions := filepath.Join(root, "resolutions")
 	backups := filepath.Join(root, "backups")
 	rollback := filepath.Join(root, "rollback")
+	imports := filepath.Join(root, "imports")
 	got := map[string]string{
 		"Project":            layout.Project,
 		"Root":               layout.Root,
@@ -37,6 +38,8 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"LearnedResolutions": layout.LearnedResolutions,
 		"BackupsDir":         layout.BackupsDir,
 		"RollbackDir":        layout.RollbackDir,
+		"ImportsDir":         layout.ImportsDir,
+		"ImportCodex":        layout.ImportCodex,
 	}
 	want := map[string]string{
 		"Project":            project,
@@ -51,6 +54,8 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"LearnedResolutions": filepath.Join(resolutions, "learned-resolutions.json"),
 		"BackupsDir":         backups,
 		"RollbackDir":        rollback,
+		"ImportsDir":         imports,
+		"ImportCodex":        filepath.Join(imports, "codex.import.json"),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Layout paths = %#v, want %#v", got, want)
@@ -117,6 +122,69 @@ func TestSaveSyncStateForcesExpectedModesUnderRestrictiveUmask(t *testing.T) {
 
 	assertDirMode(t, layout.Root, 0o755)
 	assertFileMode(t, layout.SyncState, 0o644)
+}
+
+func TestSaveAndLoadImportCodexReport(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	value := map[string]any{"schemaVersion": "agent-canon.import.v1", "tool": "codex"}
+	if err := layout.SaveImportCodex(value); err != nil {
+		t.Fatalf("SaveImportCodex returned error: %v", err)
+	}
+
+	assertDirMode(t, layout.Root, 0o755)
+	assertDirMode(t, layout.ImportsDir, 0o755)
+	assertFileMode(t, layout.ImportCodex, 0o644)
+	assertFileContents(t, layout.ImportCodex, "{\n  \"schemaVersion\": \"agent-canon.import.v1\",\n  \"tool\": \"codex\"\n}\n")
+
+	var got map[string]string
+	if err := layout.LoadImportCodex(&got); err != nil {
+		t.Fatalf("LoadImportCodex returned error: %v", err)
+	}
+	if got["schemaVersion"] != "agent-canon.import.v1" || got["tool"] != "codex" {
+		t.Fatalf("import report = %#v, want saved values", got)
+	}
+}
+
+func TestLoadImportCodexReturnsErrNotFoundForMissingFile(t *testing.T) {
+	layout, err := workspace.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	var dest map[string]any
+	err = layout.LoadImportCodex(&dest)
+	if !errors.Is(err, workspace.ErrNotFound) {
+		t.Fatalf("LoadImportCodex error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSaveImportCodexFailsWhenImportsDirSymlinkEscapesProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := os.MkdirAll(layout.Root, 0o755); err != nil {
+		t.Fatalf("create workspace root: %v", err)
+	}
+	if err := os.Symlink(outside, layout.ImportsDir); err != nil {
+		t.Fatalf("create imports symlink: %v", err)
+	}
+
+	err = layout.SaveImportCodex(map[string]string{"tool": "codex"})
+	if err == nil {
+		t.Fatalf("SaveImportCodex returned nil error for escaping imports symlink")
+	}
+	if !strings.Contains(err.Error(), "project") {
+		t.Fatalf("error missing project boundary context: %v", err)
+	}
+	assertPathMissing(t, filepath.Join(outside, "codex.import.json"))
 }
 
 func TestSaveRollbackManifestWritesExpectedFile(t *testing.T) {
@@ -450,6 +518,25 @@ func TestSaveManifestRejectsMutatedLayoutPath(t *testing.T) {
 	assertPathMissing(t, unexpected)
 }
 
+func TestSaveImportCodexRejectsMutatedLayoutPath(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	unexpected := filepath.Join(layout.Root, "unexpected-import.json")
+	layout.ImportCodex = unexpected
+
+	err = layout.SaveImportCodex(map[string]string{"tool": "codex"})
+	if err == nil {
+		t.Fatalf("SaveImportCodex returned nil error for mutated layout path")
+	}
+	if !strings.Contains(err.Error(), "known layout path") {
+		t.Fatalf("error missing known-path context: %v", err)
+	}
+	assertPathMissing(t, unexpected)
+}
+
 func TestTypedSavesRejectMutatedProjectAndLayoutPath(t *testing.T) {
 	project := t.TempDir()
 	otherProject := t.TempDir()
@@ -514,6 +601,9 @@ func TestTypedSavesWriteOnlyExpectedWorkspaceFiles(t *testing.T) {
 	if err := layout.SaveLearnedResolutions(map[string]string{"name": "learned"}); err != nil {
 		t.Fatalf("SaveLearnedResolutions returned error: %v", err)
 	}
+	if err := layout.SaveImportCodex(map[string]string{"name": "import"}); err != nil {
+		t.Fatalf("SaveImportCodex returned error: %v", err)
+	}
 
 	wantFiles := map[string]string{
 		layout.Manifest:           "{\n  \"name\": \"manifest\"\n}\n",
@@ -521,6 +611,7 @@ func TestTypedSavesWriteOnlyExpectedWorkspaceFiles(t *testing.T) {
 		layout.BaseCodex:          "{\n  \"name\": \"codex\"\n}\n",
 		layout.BaseCanon:          "{\n  \"name\": \"canon\"\n}\n",
 		layout.LearnedResolutions: "{\n  \"name\": \"learned\"\n}\n",
+		layout.ImportCodex:        "{\n  \"name\": \"import\"\n}\n",
 	}
 	for path, want := range wantFiles {
 		assertFileContents(t, path, want)
