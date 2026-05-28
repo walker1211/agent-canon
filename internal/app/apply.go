@@ -59,11 +59,11 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	}
 	plannedChanges := applyPlanChanges(codexPlan.Changes)
 	if opts.DryRun {
-		return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "dry-run", Changes: plannedChanges, Warnings: codexPlan.Warnings})
+		return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: codexPlan.Warnings})
 	}
 
 	if !opts.Yes {
-		if err := renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "planned", Changes: plannedChanges, Warnings: codexPlan.Warnings}); err != nil {
+		if err := renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: codexPlan.Warnings}); err != nil {
 			return err
 		}
 		confirmed, err := confirmApply(stdin, stdout)
@@ -101,7 +101,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: codexPlan.Warnings})
+	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: codexPlan.Warnings})
 }
 
 func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
@@ -134,11 +134,11 @@ func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	}
 	plannedChanges := applyPlanChanges(claudePlan.Changes)
 	if opts.DryRun {
-		return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "dry-run", Changes: plannedChanges, Warnings: claudePlan.Warnings})
+		return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: claudePlan.Warnings})
 	}
 
 	if !opts.Yes {
-		if err := renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "planned", Changes: plannedChanges, Warnings: claudePlan.Warnings}); err != nil {
+		if err := renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: claudePlan.Warnings}); err != nil {
 			return err
 		}
 		confirmed, err := confirmApply(stdin, stdout)
@@ -176,7 +176,7 @@ func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "applied", BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: claudePlan.Warnings})
+	return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: claudePlan.Warnings})
 }
 
 func refreshBaselineAfterFilesystemChange(opts cli.Options, layout workspace.Layout, applyWarnings []model.Warning) (map[string]string, error) {

@@ -62,11 +62,35 @@ func TestRunApplyCodexDryRunWritesNothing(t *testing.T) {
 	if !strings.Contains(stdout.String(), "agent-canon apply codex: dry-run") || !strings.Contains(stdout.String(), "Changed files:") || !strings.Contains(stdout.String(), filepath.Join(fixture.project, "AGENTS.md")) {
 		t.Fatalf("stdout missing dry-run changed files: %q", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "global-skipped") {
-		t.Fatalf("stdout missing global skip warning: %q", stdout.String())
+	for _, want := range []string{
+		"Global boundary: global Claude/Codex home writes are intentionally excluded unless --global is used.",
+		"global-skipped",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q: %q", want, stdout.String())
+		}
 	}
 	if !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexHomeBefore) {
 		t.Fatalf("dry-run modified Codex home")
+	}
+}
+
+func TestRunApplyCodexGlobalDryRunWritesNothingAndExplainsRealHomeTargets(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	codexHomeBefore := directorySnapshot(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--global", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	want := "Global boundary: listed global paths point at real Claude/Codex homes, but dry-run does not write them."
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("stdout missing %q: %q", want, stdout.String())
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("global dry-run modified Codex home")
 	}
 }
 
@@ -154,11 +178,37 @@ func TestRunApplyClaudeDryRunWritesNothing(t *testing.T) {
 	if !strings.Contains(stdout.String(), "agent-canon apply claude: dry-run") || !strings.Contains(stdout.String(), "Changed files:") || !strings.Contains(stdout.String(), filepath.Join(fixture.project, "CLAUDE.md")) {
 		t.Fatalf("stdout missing dry-run changed files: %q", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "global-skipped") {
-		t.Fatalf("stdout missing global skip warning: %q", stdout.String())
+	for _, want := range []string{
+		"Global boundary: global Claude/Codex home writes are intentionally excluded unless --global is used.",
+		"global-skipped",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q: %q", want, stdout.String())
+		}
 	}
 	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) || !equalStringMaps(directorySnapshot(t, fixture.claudeHome), claudeBefore) || !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexBefore) {
 		t.Fatalf("dry-run modified files")
+	}
+}
+
+func TestRunApplyClaudeGlobalDryRunWritesNothingAndExplainsRealHomeTargets(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	projectBefore := directorySnapshot(t, fixture.project)
+	claudeBefore := directorySnapshot(t, fixture.claudeHome)
+	codexBefore := directorySnapshot(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--global", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	want := "Global boundary: listed global paths point at real Claude/Codex homes, but dry-run does not write them."
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("stdout missing %q: %q", want, stdout.String())
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) || !equalStringMaps(directorySnapshot(t, fixture.claudeHome), claudeBefore) || !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexBefore) {
+		t.Fatalf("global dry-run modified files")
 	}
 }
 

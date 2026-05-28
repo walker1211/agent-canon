@@ -386,13 +386,14 @@ func ImportText(writer io.Writer, report model.ImportReport) error {
 }
 
 type ApplyTextReport struct {
-	Target       string
-	Project      string
-	Mode         string
-	BackupDir    string
-	ManifestPath string
-	Changes      []model.ApplyFileChange
-	Warnings     []model.Warning
+	Target        string
+	Project       string
+	Mode          string
+	IncludeGlobal bool
+	BackupDir     string
+	ManifestPath  string
+	Changes       []model.ApplyFileChange
+	Warnings      []model.Warning
 }
 
 func ApplyText(writer io.Writer, report ApplyTextReport) error {
@@ -413,6 +414,15 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 		}
 		if err := out.line("Backup and rollback manifest are created only when apply runs without --dry-run."); err != nil {
 			return err
+		}
+		if report.IncludeGlobal {
+			if err := out.line("Global boundary: listed global paths point at real Claude/Codex homes, but dry-run does not write them."); err != nil {
+				return err
+			}
+		} else {
+			if err := out.line("Global boundary: global Claude/Codex home writes are intentionally excluded unless --global is used."); err != nil {
+				return err
+			}
 		}
 	}
 	if report.BackupDir != "" {
@@ -441,6 +451,11 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 			return err
 		}
 	}
+	if report.Mode == "dry-run" {
+		if err := writeApplyDryRunNextSteps(out, report); err != nil {
+			return err
+		}
+	}
 	if len(report.Warnings) == 0 {
 		return nil
 	}
@@ -457,6 +472,40 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 		}
 	}
 	return nil
+}
+
+func writeApplyDryRunNextSteps(out textWriter, report ApplyTextReport) error {
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Next steps:"); err != nil {
+		return err
+	}
+	if err := out.line("- Review Changed files before any write."); err != nil {
+		return err
+	}
+	command := fmt.Sprintf("agent-canon apply %s --yes", report.Target)
+	if report.IncludeGlobal {
+		command = fmt.Sprintf("agent-canon apply %s --global --yes", report.Target)
+	}
+	if err := out.line("- Run `%s` only after dry-run looks correct.", command); err != nil {
+		return err
+	}
+	if hasWarningCode(report.Warnings, "global-skipped") {
+		if err := out.line("- To inspect skipped global home changes first, run `agent-canon apply %s --global --dry-run`.", report.Target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasWarningCode(warnings []model.Warning, code string) bool {
+	for _, warning := range warnings {
+		if warning.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 type RollbackTextReport struct {

@@ -73,6 +73,116 @@ func TestApplyTextDryRunPrintsNoWriteNote(t *testing.T) {
 	}
 }
 
+func TestApplyTextDryRunPrintsNextSteps(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:  "codex",
+		Project: "/repo",
+		Mode:    "dry-run",
+		Changes: []model.ApplyFileChange{{Path: "/repo/AGENTS.md", Scope: model.ScopeProject, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"Next steps:",
+		"- Review Changed files before any write.",
+		"- Run `agent-canon apply codex --yes` only after dry-run looks correct.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ApplyText dry-run output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestApplyTextPlannedModeDoesNotPrintDryRunNextSteps(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:  "codex",
+		Project: "/repo",
+		Mode:    "planned",
+		Changes: []model.ApplyFileChange{{Path: "/repo/AGENTS.md", Scope: model.ScopeProject, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	for _, notWant := range []string{
+		"Next steps:",
+		"dry-run looks correct",
+	} {
+		if strings.Contains(text, notWant) {
+			t.Fatalf("ApplyText planned output contains dry-run next step %q:\n%s", notWant, text)
+		}
+	}
+}
+
+func TestApplyTextDryRunExplainsDefaultGlobalBoundary(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:  "codex",
+		Project: "/repo",
+		Mode:    "dry-run",
+		Changes: []model.ApplyFileChange{{Path: "/repo/AGENTS.md", Scope: model.ScopeProject, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	want := "Global boundary: global Claude/Codex home writes are intentionally excluded unless --global is used."
+	if !strings.Contains(text, want) {
+		t.Fatalf("ApplyText dry-run output missing %q:\n%s", want, text)
+	}
+}
+
+func TestApplyTextDryRunWithGlobalExplainsRealHomeTargets(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:        "codex",
+		Project:       "/repo",
+		Mode:          "dry-run",
+		IncludeGlobal: true,
+		Changes:       []model.ApplyFileChange{{Path: "/home/.codex/config.toml", Scope: model.ScopeGlobal, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"Global boundary: listed global paths point at real Claude/Codex homes, but dry-run does not write them.",
+		"- Run `agent-canon apply codex --global --yes` only after dry-run looks correct.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ApplyText --global dry-run output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestApplyTextDryRunWithGlobalSkippedSuggestsGlobalDryRunFirst(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:   "codex",
+		Project:  "/repo",
+		Mode:     "dry-run",
+		Changes:  []model.ApplyFileChange{{Path: "/repo/AGENTS.md", Scope: model.ScopeProject, Action: model.ApplyActionModify}},
+		Warnings: []model.Warning{{Code: "global-skipped", Message: "global Codex targets were skipped"}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	want := "- To inspect skipped global home changes first, run `agent-canon apply codex --global --dry-run`."
+	if !strings.Contains(text, want) {
+		t.Fatalf("ApplyText dry-run output missing %q:\n%s", want, text)
+	}
+}
+
 func TestApplyTextPropagatesWriteErrors(t *testing.T) {
 	err := render.ApplyText(failingWriter{}, render.ApplyTextReport{Target: "codex", Mode: "dry-run"})
 	if err == nil {
