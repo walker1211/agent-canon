@@ -39,6 +39,7 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"BackupsDir":         layout.BackupsDir,
 		"RollbackDir":        layout.RollbackDir,
 		"ImportsDir":         layout.ImportsDir,
+		"ImportClaude":       layout.ImportClaude,
 		"ImportCodex":        layout.ImportCodex,
 	}
 	want := map[string]string{
@@ -55,6 +56,7 @@ func TestNewReturnsExpectedProjectLocalPaths(t *testing.T) {
 		"BackupsDir":         backups,
 		"RollbackDir":        rollback,
 		"ImportsDir":         imports,
+		"ImportClaude":       filepath.Join(imports, "claude.import.json"),
 		"ImportCodex":        filepath.Join(imports, "codex.import.json"),
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -150,6 +152,32 @@ func TestSaveAndLoadImportCodexReport(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadImportClaudeReport(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	value := map[string]any{"schemaVersion": "agent-canon.import.v1", "tool": "claude"}
+	if err := layout.SaveImportClaude(value); err != nil {
+		t.Fatalf("SaveImportClaude returned error: %v", err)
+	}
+
+	assertDirMode(t, layout.Root, 0o755)
+	assertDirMode(t, layout.ImportsDir, 0o755)
+	assertFileMode(t, layout.ImportClaude, 0o644)
+	assertFileContents(t, layout.ImportClaude, "{\n  \"schemaVersion\": \"agent-canon.import.v1\",\n  \"tool\": \"claude\"\n}\n")
+
+	var got map[string]string
+	if err := layout.LoadImportClaude(&got); err != nil {
+		t.Fatalf("LoadImportClaude returned error: %v", err)
+	}
+	if got["schemaVersion"] != "agent-canon.import.v1" || got["tool"] != "claude" {
+		t.Fatalf("import report = %#v, want saved values", got)
+	}
+}
+
 func TestLoadImportCodexReturnsErrNotFoundForMissingFile(t *testing.T) {
 	layout, err := workspace.New(t.TempDir())
 	if err != nil {
@@ -160,6 +188,19 @@ func TestLoadImportCodexReturnsErrNotFoundForMissingFile(t *testing.T) {
 	err = layout.LoadImportCodex(&dest)
 	if !errors.Is(err, workspace.ErrNotFound) {
 		t.Fatalf("LoadImportCodex error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLoadImportClaudeReturnsErrNotFoundForMissingFile(t *testing.T) {
+	layout, err := workspace.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	var dest map[string]any
+	err = layout.LoadImportClaude(&dest)
+	if !errors.Is(err, workspace.ErrNotFound) {
+		t.Fatalf("LoadImportClaude error = %v, want ErrNotFound", err)
 	}
 }
 
@@ -185,6 +226,30 @@ func TestSaveImportCodexFailsWhenImportsDirSymlinkEscapesProject(t *testing.T) {
 		t.Fatalf("error missing project boundary context: %v", err)
 	}
 	assertPathMissing(t, filepath.Join(outside, "codex.import.json"))
+}
+
+func TestSaveImportClaudeFailsWhenImportsDirSymlinkEscapesProject(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := os.MkdirAll(layout.Root, 0o755); err != nil {
+		t.Fatalf("create workspace root: %v", err)
+	}
+	if err := os.Symlink(outside, layout.ImportsDir); err != nil {
+		t.Fatalf("create imports symlink: %v", err)
+	}
+
+	err = layout.SaveImportClaude(map[string]string{"tool": "claude"})
+	if err == nil {
+		t.Fatalf("SaveImportClaude returned nil error for escaping imports symlink")
+	}
+	if !strings.Contains(err.Error(), "project") {
+		t.Fatalf("error missing project boundary context: %v", err)
+	}
+	assertPathMissing(t, filepath.Join(outside, "claude.import.json"))
 }
 
 func TestSaveRollbackManifestWritesExpectedFile(t *testing.T) {
@@ -530,6 +595,25 @@ func TestSaveImportCodexRejectsMutatedLayoutPath(t *testing.T) {
 	err = layout.SaveImportCodex(map[string]string{"tool": "codex"})
 	if err == nil {
 		t.Fatalf("SaveImportCodex returned nil error for mutated layout path")
+	}
+	if !strings.Contains(err.Error(), "known layout path") {
+		t.Fatalf("error missing known-path context: %v", err)
+	}
+	assertPathMissing(t, unexpected)
+}
+
+func TestSaveImportClaudeRejectsMutatedLayoutPath(t *testing.T) {
+	project := t.TempDir()
+	layout, err := workspace.New(project)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	unexpected := filepath.Join(layout.Root, "unexpected-import.json")
+	layout.ImportClaude = unexpected
+
+	err = layout.SaveImportClaude(map[string]string{"tool": "claude"})
+	if err == nil {
+		t.Fatalf("SaveImportClaude returned nil error for mutated layout path")
 	}
 	if !strings.Contains(err.Error(), "known layout path") {
 		t.Fatalf("error missing known-path context: %v", err)

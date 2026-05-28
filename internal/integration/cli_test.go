@@ -285,6 +285,78 @@ func TestSecretFixtureTokenDoesNotLeakToCLIOutputs(t *testing.T) {
 	})
 }
 
+func TestImportClaudeWritesOnlyWorkspaceBaselineAndReport(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"import", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon import claude") {
+		t.Fatalf("stdout missing import header: %q", stdout.String())
+	}
+
+	allowed := map[string]bool{
+		filepath.Join("project", ".agent-canon", "manifest.json"):                 true,
+		filepath.Join("project", ".agent-canon", "base", "claude.snapshot.json"):  true,
+		filepath.Join("project", ".agent-canon", "imports", "claude.import.json"): true,
+	}
+	workspaceRoot := filepath.Join(fixture.project, ".agent-canon")
+	assertFileExists(t, filepath.Join(workspaceRoot, "manifest.json"))
+	assertFileExists(t, filepath.Join(workspaceRoot, "base", "claude.snapshot.json"))
+	assertFileExists(t, filepath.Join(workspaceRoot, "imports", "claude.import.json"))
+	assertPathMissing(t, filepath.Join(workspaceRoot, "base", "codex.snapshot.json"))
+	assertPathMissing(t, filepath.Join(workspaceRoot, "base", "canon.snapshot.json"))
+	assertPathMissing(t, filepath.Join(workspaceRoot, "imports", "codex.import.json"))
+	assertPathMissing(t, filepath.Join(workspaceRoot, "sync-state.json"))
+	assertPathMissing(t, filepath.Join(workspaceRoot, "rollback"))
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
+
+	after := snapshotFiles(t, fixture.root)
+	for rel, contents := range before {
+		if allowed[rel] {
+			continue
+		}
+		if after[rel] != contents {
+			t.Fatalf("import claude changed fixture input %s", rel)
+		}
+	}
+	for rel := range after {
+		if _, ok := before[rel]; !ok && !allowed[rel] {
+			t.Fatalf("import claude created unexpected file %s", rel)
+		}
+	}
+
+	payload, err := os.ReadFile(filepath.Join(workspaceRoot, "imports", "claude.import.json"))
+	if err != nil {
+		t.Fatalf("read import report: %v", err)
+	}
+	var report model.ImportReport
+	if err := json.Unmarshal(payload, &report); err != nil {
+		t.Fatalf("import report JSON invalid: %v\n%s", err, string(payload))
+	}
+	if report.Tool != "claude" || report.SnapshotPath != filepath.Join(workspaceRoot, "base", "claude.snapshot.json") {
+		t.Fatalf("import report = %#v", report)
+	}
+}
+
+func TestSecretFixtureImportClaudeDoesNotLeakToCLIOutputsOrState(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"import", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "import claude stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "import claude stderr")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	for _, rel := range previewRelativePaths(t, filepath.Join(fixture.project, ".agent-canon")) {
+		assertDoesNotContainSecret(t, readFileString(t, filepath.Join(fixture.project, ".agent-canon", rel)), filepath.Join(".agent-canon", rel))
+	}
+}
+
 func TestSyncConflictsResolveRoundTripUsesProjectWorkspaceOnly(t *testing.T) {
 	fixture := tempFixturePathsFor(t, "basic")
 	mustWriteFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "shared base\n")

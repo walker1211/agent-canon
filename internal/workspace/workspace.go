@@ -31,6 +31,7 @@ type Layout struct {
 	BackupsDir         string
 	RollbackDir        string
 	ImportsDir         string
+	ImportClaude       string
 	ImportCodex        string
 
 	paths layoutPaths
@@ -50,6 +51,7 @@ type layoutPaths struct {
 	BackupsDir         string
 	RollbackDir        string
 	ImportsDir         string
+	ImportClaude       string
 	ImportCodex        string
 }
 
@@ -72,6 +74,7 @@ func New(project string) (Layout, error) {
 		BackupsDir:         paths.BackupsDir,
 		RollbackDir:        paths.RollbackDir,
 		ImportsDir:         paths.ImportsDir,
+		ImportClaude:       paths.ImportClaude,
 		ImportCodex:        paths.ImportCodex,
 		paths:              paths,
 	}, nil
@@ -108,6 +111,7 @@ func newLayoutPaths(project string) (layoutPaths, error) {
 		BackupsDir:         backups,
 		RollbackDir:        rollback,
 		ImportsDir:         imports,
+		ImportClaude:       filepath.Join(imports, "claude.import.json"),
 		ImportCodex:        filepath.Join(imports, "codex.import.json"),
 	}, nil
 }
@@ -158,6 +162,14 @@ func (l Layout) SaveLearnedResolutions(value any) error {
 
 func (l Layout) LoadLearnedResolutions(dest any) error {
 	return l.readJSON(l.LearnedResolutions, l.paths.LearnedResolutions, dest)
+}
+
+func (l Layout) SaveImportClaude(value any) error {
+	return l.writeJSON(l.ImportClaude, l.paths.ImportClaude, value)
+}
+
+func (l Layout) LoadImportClaude(dest any) error {
+	return l.readJSON(l.ImportClaude, l.paths.ImportClaude, dest)
 }
 
 func (l Layout) SaveImportCodex(value any) error {
@@ -308,7 +320,7 @@ func (l Layout) validateKnownPath(path string, canonicalPath string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Contains([]string{known.Manifest, known.BaseClaude, known.BaseCodex, known.BaseCanon, known.SyncState, known.LearnedResolutions, known.ImportCodex}, canonicalPath) {
+	if !slices.Contains([]string{known.Manifest, known.BaseClaude, known.BaseCodex, known.BaseCanon, known.SyncState, known.LearnedResolutions, known.ImportClaude, known.ImportCodex}, canonicalPath) {
 		return fmt.Errorf("workspace path %s is not a known layout path", canonicalPath)
 	}
 	if filepath.Clean(path) != canonicalPath {

@@ -14,16 +14,16 @@ import (
 	"github.com/zhangyoujun/agent-canon/internal/workspace"
 )
 
-func runImport(opts cli.Options, stdout io.Writer) error {
-	switch opts.ImportTarget {
-	case "codex":
-		return runImportCodex(opts, stdout)
-	default:
-		return withExitCode(1, "unsupported import target %q", opts.ImportTarget)
-	}
+type importTarget struct {
+	tool         string
+	snapshot     model.SnapshotReport
+	snapshotPath string
+	reportPath   string
+	saveSnapshot func(any) error
+	saveReport   func(any) error
 }
 
-func runImportCodex(opts cli.Options, stdout io.Writer) error {
+func runImport(opts cli.Options, stdout io.Writer) error {
 	layout, err := workspace.New(opts.Project)
 	if err != nil {
 		return withExitCode(1, "%w", err)
@@ -37,32 +37,58 @@ func runImportCodex(opts cli.Options, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	current.Codex = redactedSnapshotWarnings(current.Codex)
 
+	var target importTarget
+	switch opts.ImportTarget {
+	case "claude":
+		target = importTarget{
+			tool:         "claude",
+			snapshot:     redactedSnapshotWarnings(current.Claude),
+			snapshotPath: layout.BaseClaude,
+			reportPath:   layout.ImportClaude,
+			saveSnapshot: layout.SaveBaseClaude,
+			saveReport:   layout.SaveImportClaude,
+		}
+	case "codex":
+		target = importTarget{
+			tool:         "codex",
+			snapshot:     redactedSnapshotWarnings(current.Codex),
+			snapshotPath: layout.BaseCodex,
+			reportPath:   layout.ImportCodex,
+			saveSnapshot: layout.SaveBaseCodex,
+			saveReport:   layout.SaveImportCodex,
+		}
+	default:
+		return withExitCode(1, "unsupported import target %q", opts.ImportTarget)
+	}
+	return runImportTarget(opts, stdout, layout, scanReport, target)
+}
+
+func runImportTarget(opts cli.Options, stdout io.Writer, layout workspace.Layout, scanReport model.ScanReport, target importTarget) error {
 	if err := ensureImportManifest(opts, layout); err != nil {
 		return err
 	}
-	if err := layout.SaveBaseCodex(current.Codex); err != nil {
+	if err := target.saveSnapshot(target.snapshot); err != nil {
 		return withExitCode(1, "%w", err)
 	}
 
 	scanWarnings := redactedWarnings(scanReport.Warnings)
-	warnings := appendWarnings(scanWarnings, current.Codex.Warnings...)
+	warnings := appendWarnings(scanWarnings, target.snapshot.Warnings...)
 	report := model.ImportReport{
 		SchemaVersion: model.ImportSchemaVersion,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 		Project:       opts.Project,
-		Tool:          "codex",
+		Tool:          target.tool,
 		WorkspaceRoot: layout.Root,
-		SnapshotPath:  layout.BaseCodex,
-		ReportPath:    layout.ImportCodex,
+		SnapshotPath:  target.snapshotPath,
+		ReportPath:    target.reportPath,
 		Summary: model.ImportSummary{
-			Resources: len(current.Codex.Resources),
+			Resources: len(target.snapshot.Resources),
 			Warnings:  len(warnings),
 		},
 		Warnings: warnings,
 	}
-	if err := layout.SaveImportCodex(report); err != nil {
+	if err := target.saveReport(report); err != nil {
 		return withExitCode(1, "%w", err)
 	}
 

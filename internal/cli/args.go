@@ -11,7 +11,7 @@ import (
 
 const helpText = `agent-canon is a migration inventory, import, plan, sync, conflict, preview export, apply, verify, workspace lifecycle, and rollback tool.
 
-Write boundary: scan, status, diff, conflicts, and verify are read-only; init writes only project .agent-canon; import codex writes only project .agent-canon import metadata and Codex baseline snapshots; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
+Write boundary: scan, status, diff, conflicts, and verify are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
 
 Usage:
   agent-canon init [flags]
@@ -20,6 +20,7 @@ Usage:
   agent-canon diff [codex] [flags]
   agent-canon plan [flags]
   agent-canon export codex [flags]
+  agent-canon import claude [flags]
   agent-canon import codex [flags]
   agent-canon sync claude codex [flags]
   agent-canon conflicts [flags]
@@ -39,9 +40,10 @@ Commands:
   status        Read-only project .agent-canon workspace status
   diff          Read-only diff from base snapshots to current Claude/Codex state
   plan          Read-only migration plan generation except when --out writes a JSON plan file
-  export codex  Write a Codex preview directory only when --out is set
-  import codex  Import current Codex state into project .agent-canon metadata
-  sync          Sync claude to codex metadata; writes only project .agent-canon
+  export codex   Write a Codex preview directory only when --out is set
+  import claude  Import current Claude state into project .agent-canon metadata
+  import codex   Import current Codex state into project .agent-canon metadata
+  sync           Sync claude to codex metadata; writes only project .agent-canon
   conflicts     Read-only conflict listing
   resolve       Resolve one conflict; writes only project .agent-canon
   apply codex   Apply Codex target files after conflict checks, backup, and confirmation
@@ -153,10 +155,10 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		flagArgs = flagArgs[1:]
 	case "import":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "import requires target codex", code: 1}
+			return Options{}, usageError{message: "import requires target claude or codex", code: 1}
 		}
 		importTarget = flagArgs[0]
-		if importTarget != "codex" {
+		if importTarget != "claude" && importTarget != "codex" {
 			return Options{}, usageError{message: fmt.Sprintf("unsupported import target %q", importTarget), code: 1}
 		}
 		flagArgs = flagArgs[1:]

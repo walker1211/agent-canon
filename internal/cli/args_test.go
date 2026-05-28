@@ -289,16 +289,19 @@ func TestParseRejectsInvalidApplyForms(t *testing.T) {
 	}
 }
 
-func TestParseAcceptsValidImportCodexForms(t *testing.T) {
+func TestParseAcceptsValidImportForms(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
 		name   string
 		args   []string
+		target string
 		format string
 		memory bool
 	}{
-		{name: "text", args: []string{"import", "codex", "--project", root}, format: "text"},
-		{name: "json memory", args: []string{"import", "codex", "--format", "json", "--include-memory", "--project", root}, format: "json", memory: true},
+		{name: "codex text", args: []string{"import", "codex", "--project", root}, target: "codex", format: "text"},
+		{name: "codex json memory", args: []string{"import", "codex", "--format", "json", "--include-memory", "--project", root}, target: "codex", format: "json", memory: true},
+		{name: "claude text", args: []string{"import", "claude", "--project", root}, target: "claude", format: "text"},
+		{name: "claude json memory", args: []string{"import", "claude", "--format", "json", "--include-memory", "--project", root}, target: "claude", format: "json", memory: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, err := Parse(tc.args, root, root)
@@ -308,8 +311,8 @@ func TestParseAcceptsValidImportCodexForms(t *testing.T) {
 			if opts.Command != "import" {
 				t.Fatalf("Command = %q, want import", opts.Command)
 			}
-			if opts.ImportTarget != "codex" {
-				t.Fatalf("ImportTarget = %q, want codex", opts.ImportTarget)
+			if opts.ImportTarget != tc.target {
+				t.Fatalf("ImportTarget = %q, want %q", opts.ImportTarget, tc.target)
 			}
 			if opts.Format != tc.format {
 				t.Fatalf("Format = %q, want %q", opts.Format, tc.format)
@@ -328,14 +331,19 @@ func TestParseRejectsInvalidImportForms(t *testing.T) {
 		args []string
 	}{
 		{name: "missing target", args: []string{"import", "--project", root}},
-		{name: "claude unsupported", args: []string{"import", "claude", "--project", root}},
 		{name: "unsupported target", args: []string{"import", "other", "--project", root}},
-		{name: "extra arg", args: []string{"import", "codex", "extra", "--project", root}},
-		{name: "out", args: []string{"import", "codex", "--out", "report.json", "--project", root}},
-		{name: "dry run", args: []string{"import", "codex", "--dry-run", "--project", root}},
-		{name: "yes", args: []string{"import", "codex", "--yes", "--project", root}},
-		{name: "global", args: []string{"import", "codex", "--global", "--project", root}},
-		{name: "resolve flag", args: []string{"import", "codex", "--ours", "--project", root}},
+		{name: "codex extra arg", args: []string{"import", "codex", "extra", "--project", root}},
+		{name: "codex out", args: []string{"import", "codex", "--out", "report.json", "--project", root}},
+		{name: "codex dry run", args: []string{"import", "codex", "--dry-run", "--project", root}},
+		{name: "codex yes", args: []string{"import", "codex", "--yes", "--project", root}},
+		{name: "codex global", args: []string{"import", "codex", "--global", "--project", root}},
+		{name: "codex resolve flag", args: []string{"import", "codex", "--ours", "--project", root}},
+		{name: "claude extra arg", args: []string{"import", "claude", "extra", "--project", root}},
+		{name: "claude out", args: []string{"import", "claude", "--out", "report.json", "--project", root}},
+		{name: "claude dry run", args: []string{"import", "claude", "--dry-run", "--project", root}},
+		{name: "claude yes", args: []string{"import", "claude", "--yes", "--project", root}},
+		{name: "claude global", args: []string{"import", "claude", "--global", "--project", root}},
+		{name: "claude resolve flag", args: []string{"import", "claude", "--ours", "--project", root}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse(tc.args, root, root)
@@ -616,6 +624,7 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon status [flags]",
 				"agent-canon diff [codex] [flags]",
 				"agent-canon rollback <apply-id> [flags]",
+				"agent-canon import claude [flags]",
 				"agent-canon import codex [flags]",
 				"plan --out writes",
 				"export codex --out writes",
