@@ -23,6 +23,13 @@ type WriteInput struct {
 	BackupDir string
 }
 
+type WriteClaudeInput struct {
+	Plan       ClaudePlan
+	Project    string
+	ClaudeHome string
+	BackupDir  string
+}
+
 type WriteResult struct {
 	Changes []model.ApplyFileChange
 }
@@ -36,11 +43,28 @@ type writeTarget struct {
 }
 
 func WriteCodexPlan(input WriteInput) (WriteResult, error) {
-	targets, err := validateWriteInput(input)
+	targets, err := validateWriteTargets(input.Plan.Changes, input.BackupDir, func(change FileChange) (string, string, error) {
+		return rootForChange(input, change)
+	})
 	if err != nil {
 		return WriteResult{}, err
 	}
+	return writeTargets(targets, input.BackupDir)
+}
 
+func WriteClaudePlan(input WriteClaudeInput) (WriteResult, error) {
+	targets, err := validateWriteTargets(input.Plan.Changes, input.BackupDir, func(change FileChange) (string, string, error) {
+		return rootForClaudeChange(input, change)
+	})
+	if err != nil {
+		return WriteResult{}, err
+	}
+	return writeTargets(targets, input.BackupDir)
+}
+
+type writeRootResolver func(FileChange) (string, string, error)
+
+func writeTargets(targets []writeTarget, backupDir string) (WriteResult, error) {
 	changes := make([]model.ApplyFileChange, 0, len(targets))
 	for _, target := range targets {
 		change := target.change.ApplyFileChange
@@ -66,7 +90,7 @@ func WriteCodexPlan(input WriteInput) (WriteResult, error) {
 			if target.change.BeforeHash != "" && hashBytes(current) != target.change.BeforeHash {
 				return WriteResult{}, fmt.Errorf("apply target %s before hash mismatch", target.target)
 			}
-			backupPath := filepath.Join(input.BackupDir, target.backupPrefix, target.rel)
+			backupPath := filepath.Join(backupDir, target.backupPrefix, target.rel)
 			if err := writeBackupFile(backupPath, current); err != nil {
 				return WriteResult{}, err
 			}
@@ -86,13 +110,13 @@ func WriteCodexPlan(input WriteInput) (WriteResult, error) {
 	return WriteResult{Changes: changes}, nil
 }
 
-func validateWriteInput(input WriteInput) ([]writeTarget, error) {
-	targets := make([]writeTarget, 0, len(input.Plan.Changes))
-	for _, change := range input.Plan.Changes {
+func validateWriteTargets(changes []FileChange, backupDir string, rootFor writeRootResolver) ([]writeTarget, error) {
+	targets := make([]writeTarget, 0, len(changes))
+	for _, change := range changes {
 		if err := validatePlannedHash(change); err != nil {
 			return nil, err
 		}
-		root, prefix, err := rootForChange(input, change)
+		root, prefix, err := rootFor(change)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +124,7 @@ func validateWriteInput(input WriteInput) ([]writeTarget, error) {
 		if err != nil {
 			return nil, err
 		}
-		if change.Action == model.ApplyActionModify && strings.TrimSpace(input.BackupDir) == "" {
+		if change.Action == model.ApplyActionModify && strings.TrimSpace(backupDir) == "" {
 			return nil, fmt.Errorf("backup directory is required for modify apply target %s", change.Path)
 		}
 		targets = append(targets, writeTarget{change: change, root: root, backupPrefix: prefix, target: target, rel: rel})
@@ -142,6 +166,23 @@ func rootForChange(input WriteInput, change FileChange) (string, string, error) 
 			return "", "", fmt.Errorf("codex home is required for global apply target %s", change.Path)
 		}
 		return input.CodexHome, "codex-home", nil
+	default:
+		return "", "", fmt.Errorf("unsupported apply scope %q for %s", change.Scope, change.Path)
+	}
+}
+
+func rootForClaudeChange(input WriteClaudeInput, change FileChange) (string, string, error) {
+	switch change.Scope {
+	case model.ScopeProject:
+		if strings.TrimSpace(input.Project) == "" {
+			return "", "", fmt.Errorf("project path is required for apply target %s", change.Path)
+		}
+		return input.Project, "project", nil
+	case model.ScopeGlobal:
+		if strings.TrimSpace(input.ClaudeHome) == "" {
+			return "", "", fmt.Errorf("claude home is required for global apply target %s", change.Path)
+		}
+		return input.ClaudeHome, "claude-home", nil
 	default:
 		return "", "", fmt.Errorf("unsupported apply scope %q for %s", change.Scope, change.Path)
 	}

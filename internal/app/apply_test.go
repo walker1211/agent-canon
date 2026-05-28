@@ -122,25 +122,144 @@ func TestRunApplyCodexYesWritesWithoutPromptAndSkipsGlobalByDefault(t *testing.T
 	}
 }
 
-func TestRunApplyClaudeUnsupportedWritesNothing(t *testing.T) {
+func TestRunApplyClaudeRequiresSyncState(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
+	projectBefore := directorySnapshot(t, fixture.project)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "run \"agent-canon sync claude codex\" first") {
+		t.Fatalf("stderr missing sync guidance: %q", stderr.String())
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) {
+		t.Fatalf("apply claude without sync state modified project")
+	}
+}
+
+func TestRunApplyClaudeDryRunWritesNothing(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
 	projectBefore := directorySnapshot(t, fixture.project)
 	claudeBefore := directorySnapshot(t, fixture.claudeHome)
 	codexBefore := directorySnapshot(t, fixture.codexHome)
 	var stdout, stderr bytes.Buffer
 
-	code := app.Run([]string{"apply", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	code := app.Run([]string{"apply", "claude", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon apply claude: dry-run") || !strings.Contains(stdout.String(), "Changed files:") || !strings.Contains(stdout.String(), filepath.Join(fixture.project, "CLAUDE.md")) {
+		t.Fatalf("stdout missing dry-run changed files: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "global-skipped") {
+		t.Fatalf("stdout missing global skip warning: %q", stdout.String())
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) || !equalStringMaps(directorySnapshot(t, fixture.claudeHome), claudeBefore) || !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexBefore) {
+		t.Fatalf("dry-run modified files")
+	}
+}
+
+func TestRunApplyClaudeConfirmationNoRejectsWithoutWrites(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	projectBefore := directorySnapshot(t, fixture.project)
+	var stdout, stderr bytes.Buffer
+
+	code := app.RunWithIO([]string{"apply", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, strings.NewReader("n\n"), &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "apply claude is unsupported in agent-canon") || !strings.Contains(stderr.String(), "Codex -> Claude import is not implemented yet") {
-		t.Fatalf("stderr missing unsupported message: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "apply cancelled") {
+		t.Fatalf("stderr missing cancellation: %q", stderr.String())
 	}
-	if stdout.String() != "" {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
+	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) {
+		t.Fatalf("cancelled apply claude modified project")
 	}
-	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) || !equalStringMaps(directorySnapshot(t, fixture.claudeHome), claudeBefore) || !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexBefore) {
-		t.Fatalf("apply claude modified files")
+}
+
+func TestRunApplyClaudeYesWritesProjectFilesAndSkipsGlobalByDefault(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	claudeBefore := directorySnapshot(t, fixture.claudeHome)
+	codexBefore := directorySnapshot(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	claude := readFileText(t, filepath.Join(fixture.project, "CLAUDE.md"))
+	if !strings.Contains(claude, "# CLAUDE.md preview") || !strings.Contains(claude, "Generated preview for Claude") {
+		t.Fatalf("CLAUDE.md missing generated preview: %q", claude)
+	}
+	assertFileExists(t, filepath.Join(fixture.project, ".claude", "settings.json"))
+	assertFileExists(t, filepath.Join(fixture.project, ".claude", "skills", "sample-skill", "SKILL.md"))
+	if strings.Contains(stdout.String(), "Apply these changes?") || !strings.Contains(stdout.String(), "agent-canon apply claude: applied") {
+		t.Fatalf("stdout has prompt or missing applied summary: %q", stdout.String())
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.claudeHome), claudeBefore) {
+		t.Fatalf("apply claude without --global modified Claude home")
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexBefore) {
+		t.Fatalf("apply claude modified Codex home")
+	}
+}
+
+func TestRunApplyClaudeYesAdvancesBaseStateAndWritesRollbackManifest(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	workspaceRoot := filepath.Join(fixture.project, ".agent-canon")
+	baseClaudePath := filepath.Join(workspaceRoot, "base", "claude.snapshot.json")
+	beforeBase := readFileText(t, baseClaudePath)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	afterBase := readFileText(t, baseClaudePath)
+	if afterBase == beforeBase || !strings.Contains(afterBase, filepath.Join(fixture.project, "CLAUDE.md")) {
+		t.Fatalf("claude base snapshot was not advanced; before=%q after=%q", beforeBase, afterBase)
+	}
+	state := readSyncState(t, filepath.Join(workspaceRoot, "sync-state.json"))
+	if state.Summary.OpenConflicts != 0 || state.Summary.Diffs != 0 {
+		t.Fatalf("refreshed sync state summary = %#v, want clean baseline", state.Summary)
+	}
+	manifest := readOnlyRollbackManifest(t, filepath.Join(workspaceRoot, "rollback"))
+	if manifest.SchemaVersion != model.RollbackManifestSchemaVersion || manifest.Target != "claude" || manifest.Project != fixture.project {
+		t.Fatalf("rollback manifest metadata = %#v", manifest)
+	}
+	if manifest.BackupDir == "" || manifest.BaseSnapshots["claude"] != baseClaudePath || len(manifest.Changes) == 0 {
+		t.Fatalf("rollback manifest missing backup/base/change context: %#v", manifest)
+	}
+	for _, change := range manifest.Changes {
+		if !change.Verified {
+			t.Fatalf("manifest change not verified: %#v", change)
+		}
+	}
+}
+
+func TestRunApplyClaudeDoesNotLeakSecrets(t *testing.T) {
+	fixture := copiedFixture(t, "secrets")
+	const secret = "ghp_agent_canon_fixture_secret_must_not_leak"
+	runInitialSync(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {
+		t.Fatalf("apply claude output leaked secret; stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	for _, root := range []string{fixture.project, filepath.Join(fixture.project, ".agent-canon")} {
+		if strings.Contains(readTreeText(t, root), secret) {
+			t.Fatalf("apply claude leaked secret under %s", root)
+		}
 	}
 }
 

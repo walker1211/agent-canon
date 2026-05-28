@@ -11,7 +11,7 @@ import (
 
 const helpText = `agent-canon is a migration inventory, import, plan, sync, conflict, preview export, compile, apply, verify, workspace lifecycle, and rollback tool.
 
-Write boundary: scan, status, diff, conflicts, verify, and compile validation are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export claude/codex --out writes a preview directory; compile claude/codex --out writes a preview directory after baseline and conflict checks; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
+Write boundary: scan, status, diff, conflicts, verify, and compile validation are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export claude/codex --out writes a preview directory; compile claude/codex --out writes a preview directory after baseline and conflict checks; sync/resolve write only project .agent-canon; apply claude/codex writes target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
 
 Usage:
   agent-canon init [flags]
@@ -53,8 +53,8 @@ Commands:
   conflicts     Read-only conflict listing
   resolve       Resolve one conflict; writes only project .agent-canon
   apply codex   Apply Codex target files after conflict checks, backup, and confirmation
-  apply claude  Unsupported in agent-canon; Codex -> Claude import is not implemented yet
-  rollback      Roll back one apply codex manifest after drift checks and confirmation
+  apply claude  Apply Claude target files after conflict checks, backup, and confirmation
+  rollback      Roll back one apply manifest after drift checks and confirmation
   verify codex  Read-only validation of Codex targets, skills, MCP hints, and conflict state
   verify claude Read-only validation of Claude targets, settings, and conflict state
 
@@ -67,9 +67,9 @@ Flags:
   --format string        init/scan/status/diff/plan/import/sync/conflicts/verify output format: text or json (default "text")
   --out string           plan: write JSON plan to this path; export claude/codex and compile claude/codex: write preview directory to this path
   --include-memory       scan/plan/import/sync/diff/verify memory indexes and candidates only; does not migrate content
-  --dry-run              apply codex/rollback: show planned changes without writing
-  --yes                  apply codex/rollback: skip interactive confirmation
-  --global               apply codex/rollback: allow writes under --codex-home
+  --dry-run              apply claude/codex/rollback: show planned changes without writing
+  --yes                  apply claude/codex/rollback: skip interactive confirmation
+  --global               apply claude/codex/rollback: allow writes under Claude or Codex home
 `
 
 type Options struct {

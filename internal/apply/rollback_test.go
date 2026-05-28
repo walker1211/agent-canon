@@ -198,11 +198,103 @@ func TestRollbackCodexRejectsDuplicateTargetsBeforeWriting(t *testing.T) {
 	assertFileContents(t, target, "new\n")
 }
 
+func TestRollbackClaudeDeletesCreatedProjectTarget(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	target := filepath.Join(project, "CLAUDE.md")
+	writeFile(t, target, "new\n")
+	manifest := claudeRollbackManifest(project, "", model.ApplyFileChange{Path: target, Scope: model.ScopeProject, Action: model.ApplyActionCreate, AfterHash: testHash("new\n")})
+
+	result, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: project})
+	if err != nil {
+		t.Fatalf("RollbackCodex returned error: %v", err)
+	}
+
+	assertPathMissing(t, target)
+	if len(result.Changes) != 1 || !result.Changes[0].Verified {
+		t.Fatalf("result changes = %#v, want one verified change", result.Changes)
+	}
+}
+
+func TestRollbackClaudeRestoresModifiedProjectTargetFromBackup(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	target := filepath.Join(project, ".claude", "settings.json")
+	backupPath := filepath.Join(backupDir, "project", ".claude", "settings.json")
+	writeFile(t, target, "new\n")
+	writeFile(t, backupPath, "old\n")
+	manifest := claudeRollbackManifest(project, backupDir, model.ApplyFileChange{Path: target, Scope: model.ScopeProject, Action: model.ApplyActionModify, BackupPath: backupPath, BeforeHash: testHash("old\n"), AfterHash: testHash("new\n")})
+
+	result, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: project})
+	if err != nil {
+		t.Fatalf("RollbackCodex returned error: %v", err)
+	}
+
+	assertFileContents(t, target, "old\n")
+	if len(result.Changes) != 1 || !result.Changes[0].Verified {
+		t.Fatalf("result changes = %#v, want one verified change", result.Changes)
+	}
+}
+
+func TestRollbackClaudeDryRunWritesNothing(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	target := filepath.Join(project, "CLAUDE.md")
+	writeFile(t, target, "new\n")
+	manifest := claudeRollbackManifest(project, "", model.ApplyFileChange{Path: target, Scope: model.ScopeProject, Action: model.ApplyActionCreate, AfterHash: testHash("new\n")})
+
+	result, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: project, DryRun: true})
+	if err != nil {
+		t.Fatalf("RollbackCodex returned error: %v", err)
+	}
+
+	assertFileContents(t, target, "new\n")
+	if len(result.Changes) != 1 || !result.Changes[0].Verified {
+		t.Fatalf("result changes = %#v, want one verified planned change", result.Changes)
+	}
+}
+
+func TestRollbackClaudeRequiresGlobalFlagAndClaudeHomeBoundary(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	target := filepath.Join(claudeHome, "settings.json")
+	writeFile(t, target, "global\n")
+	manifest := claudeRollbackManifest(project, "", model.ApplyFileChange{Path: target, Scope: model.ScopeGlobal, Action: model.ApplyActionCreate, AfterHash: testHash("global\n")})
+
+	_, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: project, ClaudeHome: claudeHome})
+	if err == nil {
+		t.Fatalf("RollbackCodex returned nil error without IncludeGlobal")
+	}
+	if !strings.Contains(err.Error(), "global") {
+		t.Fatalf("error missing global context: %v", err)
+	}
+	assertFileContents(t, target, "global\n")
+
+	_, err = applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: project, ClaudeHome: filepath.Join(root, "other-claude-home"), IncludeGlobal: true})
+	if err == nil {
+		t.Fatalf("RollbackCodex returned nil error for global target outside Claude home")
+	}
+	assertFileContents(t, target, "global\n")
+
+	_, err = applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: project, ClaudeHome: claudeHome, IncludeGlobal: true})
+	if err != nil {
+		t.Fatalf("RollbackCodex returned error with IncludeGlobal: %v", err)
+	}
+	assertPathMissing(t, target)
+}
+
 func rollbackManifest(project string, backupDir string, changes ...model.ApplyFileChange) model.RollbackManifestReport {
+	return rollbackManifestForTarget(project, "codex", backupDir, changes...)
+}
+
+func claudeRollbackManifest(project string, backupDir string, changes ...model.ApplyFileChange) model.RollbackManifestReport {
+	return rollbackManifestForTarget(project, "claude", backupDir, changes...)
+}
+
+func rollbackManifestForTarget(project string, target string, backupDir string, changes ...model.ApplyFileChange) model.RollbackManifestReport {
 	return model.RollbackManifestReport{
 		SchemaVersion: model.RollbackManifestSchemaVersion,
 		Project:       project,
-		Target:        "codex",
+		Target:        target,
 		BackupDir:     backupDir,
 		Changes:       changes,
 	}

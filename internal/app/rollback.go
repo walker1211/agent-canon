@@ -27,7 +27,7 @@ func runRollback(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 		return withExitCode(1, "rollback manifest %s: %w", opts.RollbackID, err)
 	}
 
-	planned, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: opts.Project, CodexHome: opts.CodexHome, IncludeGlobal: opts.Global, DryRun: true})
+	planned, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: opts.Project, CodexHome: opts.CodexHome, ClaudeHome: opts.ClaudeHome, IncludeGlobal: opts.Global, DryRun: true})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -57,7 +57,7 @@ func runRollback(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 		}
 	}
 
-	result, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: opts.Project, CodexHome: opts.CodexHome, IncludeGlobal: opts.Global})
+	result, err := applypkg.RollbackCodex(applypkg.RollbackInput{Manifest: manifest, Project: opts.Project, CodexHome: opts.CodexHome, ClaudeHome: opts.ClaudeHome, IncludeGlobal: opts.Global})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}

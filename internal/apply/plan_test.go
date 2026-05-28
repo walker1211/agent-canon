@@ -110,6 +110,106 @@ func TestBuildCodexPlanDoesNotLeakSecretSourceContent(t *testing.T) {
 	}
 }
 
+func TestBuildClaudePlanMapsProjectFilesAndSkipsGlobalByDefault(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeProject, model.KindInstruction, "instruction:project", "CLAUDE.md", "AGENTS.md", model.StatusCompatible, "# Project\n"),
+		resource(t, root, model.ScopeProject, model.KindSkill, "skill:project-review", filepath.Join(".claude", "skills", "review", "SKILL.md"), filepath.Join(".agents", "skills", "review", "SKILL.md"), model.StatusPartial, "# Review\n"),
+		resource(t, root, model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+	)
+
+	plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan returned error: %v", err)
+	}
+
+	assertClaudeChangePath(t, plan, filepath.Join(scan.Project, "CLAUDE.md"))
+	assertClaudeChangePath(t, plan, filepath.Join(scan.Project, ".claude", "settings.json"))
+	assertClaudeChangePath(t, plan, filepath.Join(scan.Project, ".claude", "skills", "review", "SKILL.md"))
+	assertNoClaudeChangePath(t, plan, filepath.Join(scan.Project, "migration-report.md"))
+	assertNoClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "CLAUDE.md"))
+	if !hasWarning(plan.Warnings, "global-skipped") {
+		t.Fatalf("warnings = %#v, want global-skipped warning", plan.Warnings)
+	}
+	if !hasWarningMessage(plan.Warnings, "global-skipped", "--claude-home") {
+		t.Fatalf("warnings = %#v, want --claude-home guidance", plan.Warnings)
+	}
+}
+
+func TestBuildClaudePlanIncludesGlobalFilesWhenEnabled(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+	)
+
+	plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan returned error: %v", err)
+	}
+
+	assertNoClaudeChangePath(t, plan, filepath.Join(scan.Project, "CLAUDE.md"))
+	assertClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "CLAUDE.md"))
+	assertClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "settings.json"))
+}
+
+func TestBuildClaudePlanClassifiesCreateModifyAndNoop(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeProject, model.KindInstruction, "instruction:project", "CLAUDE.md", "AGENTS.md", model.StatusCompatible, "# Project\n"),
+	)
+
+	created, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan create returned error: %v", err)
+	}
+	claude := requireClaudeChange(t, created, filepath.Join(scan.Project, ".claude", "settings.json"))
+	if claude.Action != model.ApplyActionCreate {
+		t.Fatalf("missing target action = %q, want create", claude.Action)
+	}
+
+	writeFile(t, claude.Path, string(claude.Contents))
+	noop, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan noop returned error: %v", err)
+	}
+	claude = requireClaudeChange(t, noop, filepath.Join(scan.Project, ".claude", "settings.json"))
+	if claude.Action != model.ApplyActionNoop || claude.BeforeHash != claude.AfterHash {
+		t.Fatalf("same target change = %#v, want noop with matching hashes", claude.ApplyFileChange)
+	}
+
+	writeFile(t, claude.Path, "old\n")
+	modified, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan modify returned error: %v", err)
+	}
+	claude = requireClaudeChange(t, modified, filepath.Join(scan.Project, ".claude", "settings.json"))
+	if claude.Action != model.ApplyActionModify || claude.BeforeHash == "" || claude.BeforeHash == claude.AfterHash {
+		t.Fatalf("modified target change = %#v, want modify with distinct hashes", claude.ApplyFileChange)
+	}
+}
+
+func TestBuildClaudePlanDoesNotLeakSecretSourceContent(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeProject, model.KindCommand, "command:project-token-command", filepath.Join(".claude", "commands", "token-command.md"), filepath.Join(".agents", "skills", "token-command", "SKILL.md"), model.StatusPartial, "# Token\n\nGITHUB_TOKEN="+fixtureSecret+"\n"),
+	)
+
+	plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan returned error: %v", err)
+	}
+
+	for _, change := range plan.Changes {
+		if strings.Contains(string(change.Contents), fixtureSecret) {
+			t.Fatalf("%s leaked fixture secret", change.Path)
+		}
+	}
+	command := requireClaudeChange(t, plan, filepath.Join(scan.Project, ".claude", "commands", "token-command.md"))
+	if !strings.Contains(string(command.Contents), "GITHUB_TOKEN=<REDACTED>") {
+		t.Fatalf("command contents missing redaction marker:\n%s", command.Contents)
+	}
+}
+
 func syntheticScan(t *testing.T, root string, resources ...model.Resource) model.ScanReport {
 	t.Helper()
 	project := filepath.Join(root, "project")
@@ -172,12 +272,22 @@ func resource(t *testing.T, root string, scope model.Scope, kind model.ResourceK
 
 func requireChange(t *testing.T, plan applypkg.CodexPlan, path string) applypkg.FileChange {
 	t.Helper()
-	for _, change := range plan.Changes {
+	return requireChangeIn(t, plan.Changes, path)
+}
+
+func requireClaudeChange(t *testing.T, plan applypkg.ClaudePlan, path string) applypkg.FileChange {
+	t.Helper()
+	return requireChangeIn(t, plan.Changes, path)
+}
+
+func requireChangeIn(t *testing.T, changes []applypkg.FileChange, path string) applypkg.FileChange {
+	t.Helper()
+	for _, change := range changes {
 		if change.Path == path {
 			return change
 		}
 	}
-	t.Fatalf("change %q not found in %#v", path, plan.Changes)
+	t.Fatalf("change %q not found in %#v", path, changes)
 	return applypkg.FileChange{}
 }
 
@@ -186,11 +296,26 @@ func assertChangePath(t *testing.T, plan applypkg.CodexPlan, path string) {
 	requireChange(t, plan, path)
 }
 
+func assertClaudeChangePath(t *testing.T, plan applypkg.ClaudePlan, path string) {
+	t.Helper()
+	requireClaudeChange(t, plan, path)
+}
+
 func assertNoChangePath(t *testing.T, plan applypkg.CodexPlan, path string) {
 	t.Helper()
-	for _, change := range plan.Changes {
+	assertNoChangeIn(t, plan.Changes, path)
+}
+
+func assertNoClaudeChangePath(t *testing.T, plan applypkg.ClaudePlan, path string) {
+	t.Helper()
+	assertNoChangeIn(t, plan.Changes, path)
+}
+
+func assertNoChangeIn(t *testing.T, changes []applypkg.FileChange, path string) {
+	t.Helper()
+	for _, change := range changes {
 		if change.Path == path {
-			t.Fatalf("change %q found unexpectedly in %#v", path, plan.Changes)
+			t.Fatalf("change %q found unexpectedly in %#v", path, changes)
 		}
 	}
 }
@@ -198,6 +323,15 @@ func assertNoChangePath(t *testing.T, plan applypkg.CodexPlan, path string) {
 func hasWarning(warnings []model.Warning, code string) bool {
 	for _, warning := range warnings {
 		if warning.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWarningMessage(warnings []model.Warning, code string, message string) bool {
+	for _, warning := range warnings {
+		if warning.Code == code && strings.Contains(warning.Message, message) {
 			return true
 		}
 	}

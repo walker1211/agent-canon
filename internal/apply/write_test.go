@@ -198,6 +198,131 @@ func TestWriteCodexPlanRejectsHashMismatch(t *testing.T) {
 	}
 }
 
+func TestWriteClaudePlanBacksUpExistingProjectFileBeforeModify(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	claudeHome := filepath.Join(t.TempDir(), "claude-home")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	target := filepath.Join(project, ".claude", "settings.json")
+	writeFile(t, target, "old\n")
+
+	result, err := applypkg.WriteClaudePlan(applypkg.WriteClaudeInput{
+		Plan: applypkg.ClaudePlan{Changes: []applypkg.FileChange{{
+			ApplyFileChange: model.ApplyFileChange{Path: target, Scope: model.ScopeProject, Action: model.ApplyActionModify, BeforeHash: testHash("old\n"), AfterHash: testHash("new\n")},
+			Contents:        []byte("new\n"),
+		}}},
+		Project:    project,
+		ClaudeHome: claudeHome,
+		BackupDir:  backupDir,
+	})
+	if err != nil {
+		t.Fatalf("WriteClaudePlan returned error: %v", err)
+	}
+
+	assertFileContents(t, target, "new\n")
+	backupPath := filepath.Join(backupDir, "project", ".claude", "settings.json")
+	assertFileContents(t, backupPath, "old\n")
+	if len(result.Changes) != 1 || result.Changes[0].BackupPath != backupPath || !result.Changes[0].Verified {
+		t.Fatalf("result changes = %#v, want backup path and verified", result.Changes)
+	}
+}
+
+func TestWriteClaudePlanCreatesGlobalFileUnderClaudeHome(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	claudeHome := filepath.Join(t.TempDir(), "claude-home")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	target := filepath.Join(claudeHome, "settings.json")
+
+	result, err := applypkg.WriteClaudePlan(applypkg.WriteClaudeInput{
+		Plan: applypkg.ClaudePlan{Changes: []applypkg.FileChange{{
+			ApplyFileChange: model.ApplyFileChange{Path: target, Scope: model.ScopeGlobal, Action: model.ApplyActionCreate, AfterHash: testHash("global\n")},
+			Contents:        []byte("global\n"),
+		}}},
+		Project:    project,
+		ClaudeHome: claudeHome,
+		BackupDir:  backupDir,
+	})
+	if err != nil {
+		t.Fatalf("WriteClaudePlan returned error: %v", err)
+	}
+
+	assertFileContents(t, target, "global\n")
+	if len(result.Changes) != 1 || !result.Changes[0].Verified {
+		t.Fatalf("result changes = %#v, want verified global change", result.Changes)
+	}
+}
+
+func TestWriteClaudePlanRejectsHashDriftBeforeWriting(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	claudeHome := filepath.Join(t.TempDir(), "claude-home")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	target := filepath.Join(project, "CLAUDE.md")
+	writeFile(t, target, "current\n")
+
+	_, err := applypkg.WriteClaudePlan(applypkg.WriteClaudeInput{
+		Plan: applypkg.ClaudePlan{Changes: []applypkg.FileChange{{
+			ApplyFileChange: model.ApplyFileChange{Path: target, Scope: model.ScopeProject, Action: model.ApplyActionModify, BeforeHash: testHash("stale\n"), AfterHash: testHash("new\n")},
+			Contents:        []byte("new\n"),
+		}}},
+		Project:    project,
+		ClaudeHome: claudeHome,
+		BackupDir:  backupDir,
+	})
+	if err == nil {
+		t.Fatalf("WriteClaudePlan returned nil error for hash drift")
+	}
+	if !strings.Contains(err.Error(), "before hash mismatch") {
+		t.Fatalf("error missing drift context: %v", err)
+	}
+	assertFileContents(t, target, "current\n")
+}
+
+func TestWriteClaudePlanRejectsParentSymlinkEscape(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	outside := t.TempDir()
+	claudeHome := filepath.Join(t.TempDir(), "claude-home")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(project, ".claude")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	target := filepath.Join(project, ".claude", "settings.json")
+
+	_, err := applypkg.WriteClaudePlan(applypkg.WriteClaudeInput{
+		Plan:       applypkg.ClaudePlan{Changes: []applypkg.FileChange{{ApplyFileChange: model.ApplyFileChange{Path: target, Scope: model.ScopeProject, Action: model.ApplyActionCreate, AfterHash: testHash("settings\n")}, Contents: []byte("settings\n")}}},
+		Project:    project,
+		ClaudeHome: claudeHome,
+		BackupDir:  backupDir,
+	})
+	if err == nil {
+		t.Fatalf("WriteClaudePlan returned nil error for escaping parent symlink")
+	}
+	assertPathMissing(t, filepath.Join(outside, "settings.json"))
+}
+
+func TestWriteClaudePlanRejectsFileDirectoryConflictsBeforeWriting(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "project")
+	claudeHome := filepath.Join(t.TempDir(), "claude-home")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	parent := filepath.Join(project, ".claude", "settings.json")
+	child := filepath.Join(parent, "child")
+
+	_, err := applypkg.WriteClaudePlan(applypkg.WriteClaudeInput{
+		Plan: applypkg.ClaudePlan{Changes: []applypkg.FileChange{
+			{ApplyFileChange: model.ApplyFileChange{Path: parent, Scope: model.ScopeProject, Action: model.ApplyActionCreate, AfterHash: testHash("parent\n")}, Contents: []byte("parent\n")},
+			{ApplyFileChange: model.ApplyFileChange{Path: child, Scope: model.ScopeProject, Action: model.ApplyActionCreate, AfterHash: testHash("child\n")}, Contents: []byte("child\n")},
+		}},
+		Project:    project,
+		ClaudeHome: claudeHome,
+		BackupDir:  backupDir,
+	})
+	if err == nil {
+		t.Fatalf("WriteClaudePlan returned nil error for file/directory conflict")
+	}
+	assertPathMissing(t, parent)
+}
+
 func testHash(contents string) string {
 	sum := sha256.Sum256([]byte(contents))
 	return fmt.Sprintf("sha256:%x", sum)

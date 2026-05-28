@@ -336,6 +336,9 @@ func TestParseAcceptsValidApplyTargetsAndFlags(t *testing.T) {
 		{name: "codex yes", args: []string{"apply", "codex", "--yes", "--project", root}, applyTarget: "codex", yes: true},
 		{name: "codex global yes", args: []string{"apply", "codex", "--global", "--yes", "--project", root}, applyTarget: "codex", yes: true, global: true},
 		{name: "claude", args: []string{"apply", "claude", "--project", root}, applyTarget: "claude"},
+		{name: "claude dry run", args: []string{"apply", "claude", "--dry-run", "--project", root}, applyTarget: "claude", dryRun: true},
+		{name: "claude yes", args: []string{"apply", "claude", "--yes", "--project", root}, applyTarget: "claude", yes: true},
+		{name: "claude global yes", args: []string{"apply", "claude", "--global", "--yes", "--project", root}, applyTarget: "claude", yes: true, global: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, err := Parse(tc.args, root, root)
@@ -725,9 +728,12 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon import codex [flags]",
 				"agent-canon compile claude --out <dir> [flags]",
 				"agent-canon compile codex --out <dir> [flags]",
+				"agent-canon apply claude [flags]",
 				"plan --out writes",
 				"export claude/codex --out writes",
 				"compile claude/codex --out writes",
+				"apply claude/codex writes",
+				"allow writes under Claude or Codex home",
 				"sync/resolve write only project .agent-canon",
 				"agent-canon sync claude codex [flags]",
 				"agent-canon conflicts [flags]",

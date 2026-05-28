@@ -626,19 +626,76 @@ func TestApplyCodexBacksUpExistingProjectTarget(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeUnsupportedIntegrationWritesNothing(t *testing.T) {
+func TestApplyClaudeDryRunYesAndRollbackRoundTrip(t *testing.T) {
 	fixture := tempFixturePathsFor(t, "basic")
-	before := snapshotFiles(t, fixture.root)
+	runSyncCommand(t, fixture)
+	beforeDryRun := snapshotFiles(t, fixture.root)
+	projectBefore := snapshotFiles(t, fixture.project)
+	claudeHomeBefore := snapshotFiles(t, fixture.claudeHome)
+	codexHomeBefore := snapshotFiles(t, fixture.codexHome)
 	var stdout, stderr bytes.Buffer
 
-	code := app.Run([]string{"apply", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	code := app.Run([]string{"apply", "claude", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("dry-run exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "apply claude is unsupported in agent-canon") {
-		t.Fatalf("stderr missing unsupported message: %q", stderr.String())
+	if !strings.Contains(stdout.String(), "agent-canon apply claude: dry-run") || !strings.Contains(stdout.String(), filepath.Join(fixture.project, "CLAUDE.md")) {
+		t.Fatalf("dry-run stdout missing planned Claude write: %q", stdout.String())
 	}
-	assertFilesUnchanged(t, fixture.root, before)
+	assertFilesUnchanged(t, fixture.root, beforeDryRun)
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"apply", "claude", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("apply exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	claude := readFileString(t, filepath.Join(fixture.project, "CLAUDE.md"))
+	if !strings.Contains(claude, "# CLAUDE.md preview") || !strings.Contains(claude, "Generated preview for Claude") {
+		t.Fatalf("CLAUDE.md missing generated preview: %q", claude)
+	}
+	assertFileExists(t, filepath.Join(fixture.project, ".claude", "settings.json"))
+	assertFileExists(t, filepath.Join(fixture.project, ".claude", "skills", "sample-skill", "SKILL.md"))
+	if !reflect.DeepEqual(snapshotFiles(t, fixture.claudeHome), claudeHomeBefore) {
+		t.Fatalf("apply claude without --global modified Claude home")
+	}
+	if !reflect.DeepEqual(snapshotFiles(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("apply claude modified Codex home")
+	}
+
+	workspaceRoot := filepath.Join(fixture.project, ".agent-canon")
+	manifestPath := onlyFileInDir(t, filepath.Join(workspaceRoot, "rollback"))
+	manifestPayload, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read rollback manifest: %v", err)
+	}
+	var manifest model.RollbackManifestReport
+	if err := json.Unmarshal(manifestPayload, &manifest); err != nil {
+		t.Fatalf("unmarshal rollback manifest: %v\n%s", err, string(manifestPayload))
+	}
+	if manifest.Target != "claude" || len(manifest.Changes) == 0 {
+		t.Fatalf("rollback manifest = %#v, want Claude target with changes", manifest)
+	}
+
+	applyID := strings.TrimSuffix(filepath.Base(manifestPath), ".json")
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"rollback", applyID, "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("rollback exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, rel := range []string{"CLAUDE.md", filepath.Join(".claude", "settings.json"), filepath.Join(".claude", "skills", "sample-skill", "SKILL.md")} {
+		got := readFileString(t, filepath.Join(fixture.project, rel))
+		if got != projectBefore[rel] {
+			t.Fatalf("rollback restored %s = %q, want %q", rel, got, projectBefore[rel])
+		}
+	}
+	if !reflect.DeepEqual(snapshotFiles(t, fixture.claudeHome), claudeHomeBefore) {
+		t.Fatalf("rollback claude modified Claude home")
+	}
+	if !reflect.DeepEqual(snapshotFiles(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("rollback claude modified Codex home")
+	}
 }
 
 func TestSecretFixtureApplyDoesNotLeakToCLIOutputsOrState(t *testing.T) {
@@ -654,6 +711,24 @@ func TestSecretFixtureApplyDoesNotLeakToCLIOutputsOrState(t *testing.T) {
 	}
 	for _, rel := range previewRelativePaths(t, filepath.Join(fixture.project, ".agent-canon")) {
 		assertDoesNotContainSecret(t, readFileString(t, filepath.Join(fixture.project, ".agent-canon", rel)), filepath.Join(".agent-canon", rel))
+	}
+}
+
+func TestSecretFixtureApplyClaudeDoesNotLeakToCLIOutputsOrState(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	runSyncCommand(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "claude", "--yes", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "apply claude stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "apply claude stderr")
+	if code != 0 {
+		t.Fatalf("apply claude exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	for _, root := range []string{fixture.project, filepath.Join(fixture.project, ".agent-canon")} {
+		for _, rel := range previewRelativePaths(t, root) {
+			assertDoesNotContainSecret(t, readFileString(t, filepath.Join(root, rel)), filepath.Join(root, rel))
+		}
 	}
 }
 

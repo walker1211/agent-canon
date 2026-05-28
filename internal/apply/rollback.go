@@ -14,6 +14,7 @@ type RollbackInput struct {
 	Manifest      model.RollbackManifestReport
 	Project       string
 	CodexHome     string
+	ClaudeHome    string
 	IncludeGlobal bool
 	DryRun        bool
 }
@@ -65,7 +66,7 @@ func validateRollbackInput(input RollbackInput) ([]rollbackTarget, error) {
 	if input.Manifest.SchemaVersion != model.RollbackManifestSchemaVersion {
 		return nil, fmt.Errorf("rollback manifest schema %q is not supported", input.Manifest.SchemaVersion)
 	}
-	if input.Manifest.Target != "codex" {
+	if input.Manifest.Target != "codex" && input.Manifest.Target != "claude" {
 		return nil, fmt.Errorf("rollback manifest target %q is not supported", input.Manifest.Target)
 	}
 	project, err := absCleanRequired(input.Project, "project path")
@@ -124,10 +125,20 @@ func rollbackRoot(input RollbackInput, change model.ApplyFileChange) (string, er
 		if !input.IncludeGlobal {
 			return "", fmt.Errorf("global rollback target %s requires --global", change.Path)
 		}
-		if strings.TrimSpace(input.CodexHome) == "" {
-			return "", fmt.Errorf("codex home is required for global rollback target %s", change.Path)
+		switch input.Manifest.Target {
+		case "codex":
+			if strings.TrimSpace(input.CodexHome) == "" {
+				return "", fmt.Errorf("codex home is required for global rollback target %s", change.Path)
+			}
+			return input.CodexHome, nil
+		case "claude":
+			if strings.TrimSpace(input.ClaudeHome) == "" {
+				return "", fmt.Errorf("claude home is required for global rollback target %s", change.Path)
+			}
+			return input.ClaudeHome, nil
+		default:
+			return "", fmt.Errorf("rollback manifest target %q is not supported", input.Manifest.Target)
 		}
-		return input.CodexHome, nil
 	default:
 		return "", fmt.Errorf("unsupported rollback scope %q for %s", change.Scope, change.Path)
 	}

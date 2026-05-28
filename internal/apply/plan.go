@@ -22,6 +22,17 @@ type CodexPlan struct {
 	Warnings []model.Warning
 }
 
+type ClaudePlanInput struct {
+	Scan          model.ScanReport
+	Plan          model.PlanReport
+	IncludeGlobal bool
+}
+
+type ClaudePlan struct {
+	Changes  []FileChange
+	Warnings []model.Warning
+}
+
 type FileChange struct {
 	model.ApplyFileChange
 	PreviewPath string `json:"previewPath,omitempty"`
@@ -35,7 +46,7 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 
 	projectScan := scanForScope(input.Scan, model.ScopeProject)
 	if len(projectScan.Resources) > 0 {
-		changes, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject)
+		changes, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildCodexPreview, targetPath)
 		if err != nil {
 			return CodexPlan{}, err
 		}
@@ -45,7 +56,7 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 	globalScan := scanForScope(input.Scan, model.ScopeGlobal)
 	if len(globalScan.Resources) > 0 {
 		if input.IncludeGlobal {
-			changes, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.CodexHome, model.ScopeGlobal)
+			changes, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.CodexHome, model.ScopeGlobal, exporter.BuildCodexPreview, targetPath)
 			if err != nil {
 				return CodexPlan{}, err
 			}
@@ -61,8 +72,44 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 	return out, nil
 }
 
-func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, scope model.Scope) ([]FileChange, error) {
-	preview, err := exporter.BuildCodexPreview(scan, plan)
+func BuildClaudePlan(input ClaudePlanInput) (ClaudePlan, error) {
+	var out ClaudePlan
+	out.Warnings = append(out.Warnings, input.Scan.Warnings...)
+	out.Warnings = append(out.Warnings, input.Plan.Warnings...)
+
+	projectScan := scanForScope(input.Scan, model.ScopeProject)
+	if len(projectScan.Resources) > 0 {
+		changes, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildClaudePreview, claudeTargetPath)
+		if err != nil {
+			return ClaudePlan{}, err
+		}
+		out.Changes = append(out.Changes, changes...)
+	}
+
+	globalScan := scanForScope(input.Scan, model.ScopeGlobal)
+	if len(globalScan.Resources) > 0 {
+		if input.IncludeGlobal {
+			changes, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.ClaudeHome, model.ScopeGlobal, exporter.BuildClaudePreview, claudeTargetPath)
+			if err != nil {
+				return ClaudePlan{}, err
+			}
+			out.Changes = append(out.Changes, changes...)
+		} else {
+			out.Warnings = append(out.Warnings, model.Warning{Code: "global-skipped", Message: "global Claude targets were skipped; rerun with --global to include --claude-home writes"})
+		}
+	}
+
+	sort.SliceStable(out.Changes, func(i, j int) bool {
+		return out.Changes[i].Path < out.Changes[j].Path
+	})
+	return out, nil
+}
+
+type previewBuilder func(model.ScanReport, model.PlanReport) (exporter.CodexPreview, error)
+type targetMapper func(string, model.Scope, string) string
+
+func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, scope model.Scope, buildPreview previewBuilder, mapTarget targetMapper) ([]FileChange, error) {
+	preview, err := buildPreview(scan, plan)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +118,7 @@ func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, 
 		if file.Path == "migration-report.md" {
 			continue
 		}
-		path := targetPath(root, scope, file.Path)
+		path := mapTarget(root, scope, file.Path)
 		change, err := buildFileChange(path, scope, file.Path, file.Contents)
 		if err != nil {
 			return nil, err
@@ -96,6 +143,29 @@ func targetPath(root string, scope model.Scope, previewPath string) string {
 		return filepath.Join(root, "skills", rest)
 	}
 	if rest, ok := trimPathPrefix(clean, filepath.Join(".codex", "agents")); ok {
+		return filepath.Join(root, "agents", rest)
+	}
+	return filepath.Join(root, clean)
+}
+
+func claudeTargetPath(root string, scope model.Scope, previewPath string) string {
+	clean := filepath.FromSlash(previewPath)
+	if scope != model.ScopeGlobal {
+		return filepath.Join(root, clean)
+	}
+	switch clean {
+	case filepath.Join(".claude", "settings.json"):
+		return filepath.Join(root, "settings.json")
+	case "CLAUDE.md":
+		return filepath.Join(root, "CLAUDE.md")
+	}
+	if rest, ok := trimPathPrefix(clean, filepath.Join(".claude", "skills")); ok {
+		return filepath.Join(root, "skills", rest)
+	}
+	if rest, ok := trimPathPrefix(clean, filepath.Join(".claude", "commands")); ok {
+		return filepath.Join(root, "commands", rest)
+	}
+	if rest, ok := trimPathPrefix(clean, filepath.Join(".claude", "agents")); ok {
 		return filepath.Join(root, "agents", rest)
 	}
 	return filepath.Join(root, clean)
