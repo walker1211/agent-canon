@@ -511,6 +511,31 @@ func TestCompileCodexWritesPreviewTreeAndLeavesFixtureRootUnchanged(t *testing.T
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestCompileClaudeWritesPreviewTreeAndLeavesFixtureRootUnchanged(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	runSyncCommand(t, fixture)
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "claude-compiled")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"compile", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("compile claude exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, path := range []string{
+		"CLAUDE.md",
+		filepath.Join(".claude", "settings.json"),
+		filepath.Join(".claude", "skills", "sample-skill", "SKILL.md"),
+		"migration-report.md",
+	} {
+		assertFileExists(t, filepath.Join(outDir, path))
+	}
+	if !strings.Contains(stdout.String(), "agent-canon compile claude") || !strings.Contains(stdout.String(), "Summary: files=") {
+		t.Fatalf("compile claude stdout missing summary: %q", stdout.String())
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
 func TestSecretFixtureCompileDoesNotLeakToCLIOutputsOrGeneratedPreview(t *testing.T) {
 	fixture := tempFixturePathsFor(t, "secrets")
 	runSyncCommand(t, fixture)
@@ -522,6 +547,21 @@ func TestSecretFixtureCompileDoesNotLeakToCLIOutputsOrGeneratedPreview(t *testin
 	assertDoesNotContainSecret(t, stderr.String(), "compile stderr")
 	if code != 0 {
 		t.Fatalf("compile exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, outDir)
+}
+
+func TestSecretFixtureCompileClaudeDoesNotLeakToCLIOutputsOrGeneratedPreview(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	runSyncCommand(t, fixture)
+	outDir := filepath.Join(t.TempDir(), "claude-compiled")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"compile", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "compile claude stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "compile claude stderr")
+	if code != 0 {
+		t.Fatalf("compile claude exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
 	}
 	assertGeneratedFilesDoNotContainSecret(t, outDir)
 }

@@ -12,14 +12,20 @@ import (
 	"github.com/zhangyoujun/agent-canon/internal/workspace"
 )
 
+type compilePreviewBuilder func(model.ScanReport, model.PlanReport) (exporter.CodexPreview, error)
+
 func runCompile(opts cli.Options, stdout io.Writer) error {
-	if opts.CompileTarget != "codex" {
+	switch opts.CompileTarget {
+	case "codex":
+		return runCompilePreview(opts, stdout, "codex", exporter.BuildCodexPreview)
+	case "claude":
+		return runCompilePreview(opts, stdout, "claude", exporter.BuildClaudePreview)
+	default:
 		return withExitCode(1, "unsupported compile target %q", opts.CompileTarget)
 	}
-	return runCompileCodex(opts, stdout)
 }
 
-func runCompileCodex(opts cli.Options, stdout io.Writer) error {
+func runCompilePreview(opts cli.Options, stdout io.Writer, target string, buildPreview compilePreviewBuilder) error {
 	layout, err := workspace.New(opts.Project)
 	if err != nil {
 		return withExitCode(1, "%w", err)
@@ -28,7 +34,7 @@ func runCompileCodex(opts cli.Options, stdout io.Writer) error {
 	var canon model.CanonSnapshotReport
 	if err := layout.LoadBaseCanon(&canon); err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {
-			return withExitCode(1, "compile codex requires canon baseline; run \"agent-canon sync claude codex\" first")
+			return withExitCode(1, "compile %s requires canon baseline; run \"agent-canon sync claude codex\" first", target)
 		}
 		return withExitCode(1, "%w", err)
 	}
@@ -36,12 +42,12 @@ func runCompileCodex(opts cli.Options, stdout io.Writer) error {
 	var state model.SyncStateReport
 	if err := layout.LoadSyncState(&state); err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {
-			return withExitCode(1, "compile codex requires sync state; run \"agent-canon sync claude codex\" first")
+			return withExitCode(1, "compile %s requires sync state; run \"agent-canon sync claude codex\" first", target)
 		}
 		return withExitCode(1, "%w", err)
 	}
 	if open := openConflictCount(state); open > 0 {
-		return withExitCode(1, "compile codex blocked by %d open conflicts; run \"agent-canon conflicts\" and \"agent-canon resolve\" first", open)
+		return withExitCode(1, "compile %s blocked by %d open conflicts; run \"agent-canon conflicts\" and \"agent-canon resolve\" first", target, open)
 	}
 	if err := validateExportOutputRoot(opts); err != nil {
 		return withExitCode(1, "%w", err)
@@ -52,7 +58,7 @@ func runCompileCodex(opts cli.Options, stdout io.Writer) error {
 		return mapScanError(err)
 	}
 	planReport := planner.Build(scanReport)
-	preview, err := exporter.BuildCodexPreview(scanReport, planReport)
+	preview, err := buildPreview(scanReport, planReport)
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -63,7 +69,7 @@ func runCompileCodex(opts cli.Options, stdout io.Writer) error {
 		format string
 		args   []any
 	}{
-		{format: "agent-canon compile codex"},
+		{format: "agent-canon compile %s", args: []any{target}},
 		{format: "Project: %s", args: []any{opts.Project}},
 		{format: "Workspace: %s", args: []any{layout.Root}},
 		{format: "Canon snapshot: %s", args: []any{layout.BaseCanon}},
