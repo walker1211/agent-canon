@@ -14,6 +14,7 @@
 *.crt
 *_token*
 *secret*
+!scripts/secret-scan.sh
 !testdata/secrets/
 !testdata/secrets/**
 

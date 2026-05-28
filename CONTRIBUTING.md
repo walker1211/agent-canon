@@ -87,4 +87,32 @@ docs: clarify quick start
 
 Maintainers own release tags and published artifacts. Contributors should not create release tags unless a maintainer explicitly asks for it.
 
-Release archives should contain only the binary, `LICENSE`, root README files, and necessary non-sensitive templates. They should not contain local config, `.env`, databases, logs, generated workspace state, or private assets.
+Build a local release archive with:
+
+```sh
+scripts/package-release.sh vX.Y.Z
+```
+
+Run the clean local release checks before tagging:
+
+```sh
+scripts/ci-local.sh clean
+```
+
+Create a local release tag with:
+
+```sh
+scripts/tag-release.sh vX.Y.Z
+```
+
+The tag helper creates the tag locally and prints the explicit `git push origin <tag>` command for maintainers to run after final GitHub readiness review.
+
+Release archives should contain only:
+
+- `agent-canon`
+- `LICENSE`
+- `README.md`
+- `README.zh-CN.md`
+- `README.en.md`
+
+They should not contain local config, `.env`, secrets, databases, logs, generated workspace state, or private assets.

@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,19 +10,22 @@ import (
 
 func TestPublicReadinessFilesExist(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
-	for _, rel := range []string{
-		"README.md",
-		"README.zh-CN.md",
-		"README.en.md",
-		"SECURITY.md",
-		"CONTRIBUTING.md",
-		filepath.Join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
-		filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
-		filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
-		filepath.Join(".github", "workflows", "ci.yml"),
-		filepath.Join("scripts", "github-readiness.sh"),
-	} {
+	for _, rel := range publicReadinessFiles() {
 		assertPublicFileExists(t, filepath.Join(repoRoot, rel))
+	}
+}
+
+func TestPublicReadinessFilesAreTrackable(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	for _, rel := range publicReadinessFiles() {
+		cmd := exec.Command("git", "-C", repoRoot, "check-ignore", "-q", "--", rel)
+		err := cmd.Run()
+		if err == nil {
+			t.Fatalf("%s is ignored by git", rel)
+		}
+		if exitError, ok := err.(*exec.ExitError); !ok || exitError.ExitCode() != 1 {
+			t.Fatalf("check git ignore status for %s: %v", rel, err)
+		}
 	}
 }
 
@@ -65,6 +69,31 @@ func TestPublicReadinessSecurityAndContributingContracts(t *testing.T) {
 	}
 }
 
+func TestPublicReadinessContributingDocumentsReleasePackaging(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	contributing := readFileString(t, filepath.Join(repoRoot, "CONTRIBUTING.md"))
+	for _, want := range []string{
+		"scripts/package-release.sh vX.Y.Z",
+		"scripts/ci-local.sh clean",
+		"scripts/tag-release.sh vX.Y.Z",
+		"`agent-canon`",
+		"`LICENSE`",
+		"`README.md`",
+		"`README.zh-CN.md`",
+		"`README.en.md`",
+		"local config",
+		".env",
+		"databases",
+		"logs",
+		"generated workspace state",
+		"private assets",
+	} {
+		if !strings.Contains(contributing, want) {
+			t.Fatalf("CONTRIBUTING.md missing release packaging guidance %q", want)
+		}
+	}
+}
+
 func TestPublicReadinessFilesDoNotExposePrivateContent(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	for _, rel := range []string{
@@ -77,7 +106,12 @@ func TestPublicReadinessFilesDoNotExposePrivateContent(t *testing.T) {
 		filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
 		filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
 		filepath.Join(".github", "workflows", "ci.yml"),
+		filepath.Join(".github", "workflows", "release.yml"),
 		filepath.Join("scripts", "github-readiness.sh"),
+		filepath.Join("scripts", "package-release.sh"),
+		filepath.Join("scripts", "secret-scan.sh"),
+		filepath.Join("scripts", "ci-local.sh"),
+		filepath.Join("scripts", "tag-release.sh"),
 	} {
 		contents := readFileString(t, filepath.Join(repoRoot, rel))
 		for _, forbidden := range []string{"/Users/", "ghp_", fixtureSecret, "GITHUB_TOKEN=", "ANTHROPIC_API_KEY="} {
@@ -101,6 +135,42 @@ func TestPublicReadinessScriptChecksPrivateVulnerabilityReportingCorrectly(t *te
 		if !strings.Contains(contents, want) {
 			t.Fatalf("github-readiness.sh missing readiness check marker %q", want)
 		}
+	}
+}
+
+func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	ci := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
+	for _, want := range []string{"go-version-file: go.mod", "cache: false", "scripts/secret-scan.sh", "scripts/package-release.sh v0.0.0-ci"} {
+		if !strings.Contains(ci, want) {
+			t.Fatalf("ci.yml missing %q", want)
+		}
+	}
+	release := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "release.yml"))
+	for _, want := range []string{"tags:", "v*", "fetch-depth: 0", "scripts/secret-scan.sh --history", "linux", "darwin", "windows", "amd64", "arm64", "checksums.txt", "gh release"} {
+		if !strings.Contains(release, want) {
+			t.Fatalf("release.yml missing %q", want)
+		}
+	}
+}
+
+func publicReadinessFiles() []string {
+	return []string{
+		"README.md",
+		"README.zh-CN.md",
+		"README.en.md",
+		"SECURITY.md",
+		"CONTRIBUTING.md",
+		filepath.Join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
+		filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
+		filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
+		filepath.Join(".github", "workflows", "ci.yml"),
+		filepath.Join(".github", "workflows", "release.yml"),
+		filepath.Join("scripts", "github-readiness.sh"),
+		filepath.Join("scripts", "package-release.sh"),
+		filepath.Join("scripts", "secret-scan.sh"),
+		filepath.Join("scripts", "ci-local.sh"),
+		filepath.Join("scripts", "tag-release.sh"),
 	}
 }
 
