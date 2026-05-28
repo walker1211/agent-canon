@@ -446,6 +446,45 @@ func TestSecretFixtureSyncDoesNotLeakToCLIOutputsOrState(t *testing.T) {
 	}
 }
 
+func TestCompileCodexWritesPreviewTreeAndLeavesFixtureRootUnchanged(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	runSyncCommand(t, fixture)
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "compiled")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"compile", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("compile exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, path := range []string{
+		"AGENTS.md",
+		filepath.Join(".codex", "config.toml"),
+		"migration-report.md",
+	} {
+		assertFileExists(t, filepath.Join(outDir, path))
+	}
+	if !strings.Contains(stdout.String(), "agent-canon compile codex") || !strings.Contains(stdout.String(), "Summary: files=") {
+		t.Fatalf("compile stdout missing summary: %q", stdout.String())
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestSecretFixtureCompileDoesNotLeakToCLIOutputsOrGeneratedPreview(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+	runSyncCommand(t, fixture)
+	outDir := filepath.Join(t.TempDir(), "compiled")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"compile", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "compile stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "compile stderr")
+	if code != 0 {
+		t.Fatalf("compile exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, outDir)
+}
+
 func TestApplyCodexDryRunAndYesRoundTrip(t *testing.T) {
 	fixture := tempFixturePathsFor(t, "basic")
 	runSyncCommand(t, fixture)

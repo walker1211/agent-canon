@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 )
 
-const helpText = `agent-canon is a migration inventory, import, plan, sync, conflict, preview export, apply, verify, workspace lifecycle, and rollback tool.
+const helpText = `agent-canon is a migration inventory, import, plan, sync, conflict, preview export, compile, apply, verify, workspace lifecycle, and rollback tool.
 
-Write boundary: scan, status, diff, conflicts, and verify are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
+Write boundary: scan, status, diff, conflicts, verify, and compile validation are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; compile codex --out writes a Codex preview directory after baseline and conflict checks; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
 
 Usage:
   agent-canon init [flags]
@@ -22,6 +22,7 @@ Usage:
   agent-canon export codex [flags]
   agent-canon import claude [flags]
   agent-canon import codex [flags]
+  agent-canon compile codex --out <dir> [flags]
   agent-canon sync claude codex [flags]
   agent-canon conflicts [flags]
   agent-canon resolve <conflict-id> --ours
@@ -43,6 +44,7 @@ Commands:
   export codex   Write a Codex preview directory only when --out is set
   import claude  Import current Claude state into project .agent-canon metadata
   import codex   Import current Codex state into project .agent-canon metadata
+  compile codex  Write a Codex preview directory from existing canon sync state
   sync           Sync claude to codex metadata; writes only project .agent-canon
   conflicts     Read-only conflict listing
   resolve       Resolve one conflict; writes only project .agent-canon
@@ -59,7 +61,7 @@ Flags:
   --claude-home string   Claude Code home (default ~/.claude)
   --codex-home string    Codex home (default ~/.codex)
   --format string        init/scan/status/diff/plan/import/sync/conflicts/verify output format: text or json (default "text")
-  --out string           plan: write JSON plan to this path; export codex: write preview directory to this path
+  --out string           plan: write JSON plan to this path; export/compile codex: write preview directory to this path
   --include-memory       scan/plan/import/sync/diff/verify memory indexes and candidates only; does not migrate content
   --dry-run              apply codex/rollback: show planned changes without writing
   --yes                  apply codex/rollback: skip interactive confirmation
@@ -70,6 +72,7 @@ type Options struct {
 	Command         string
 	ExportTarget    string
 	ImportTarget    string
+	CompileTarget   string
 	SyncSource      string
 	SyncTarget      string
 	ConflictID      string
@@ -120,12 +123,13 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	command := args[0]
-	if command != "init" && command != "scan" && command != "status" && command != "diff" && command != "plan" && command != "export" && command != "import" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "rollback" && command != "verify" {
+	if command != "init" && command != "scan" && command != "status" && command != "diff" && command != "plan" && command != "export" && command != "import" && command != "compile" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "rollback" && command != "verify" {
 		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
 	}
 
 	exportTarget := ""
 	importTarget := ""
+	compileTarget := ""
 	syncSource := ""
 	syncTarget := ""
 	conflictID := ""
@@ -160,6 +164,15 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		importTarget = flagArgs[0]
 		if importTarget != "claude" && importTarget != "codex" {
 			return Options{}, usageError{message: fmt.Sprintf("unsupported import target %q", importTarget), code: 1}
+		}
+		flagArgs = flagArgs[1:]
+	case "compile":
+		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
+			return Options{}, usageError{message: "compile requires target codex", code: 1}
+		}
+		compileTarget = flagArgs[0]
+		if compileTarget != "codex" {
+			return Options{}, usageError{message: fmt.Sprintf("unsupported compile target %q", compileTarget), code: 1}
 		}
 		flagArgs = flagArgs[1:]
 	case "sync":
@@ -205,22 +218,23 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 
 	defaults := Options{
-		Command:      command,
-		ExportTarget: exportTarget,
-		ImportTarget: importTarget,
-		SyncSource:   syncSource,
-		SyncTarget:   syncTarget,
-		ConflictID:   conflictID,
-		ApplyTarget:  applyTarget,
-		RollbackID:   rollbackID,
-		VerifyTarget: verifyTarget,
-		DiffTarget:   diffTarget,
-		From:         "claude",
-		To:           "codex",
-		Project:      cwd,
-		ClaudeHome:   filepath.Join(homeDir, ".claude"),
-		CodexHome:    filepath.Join(homeDir, ".codex"),
-		Format:       "text",
+		Command:       command,
+		ExportTarget:  exportTarget,
+		ImportTarget:  importTarget,
+		CompileTarget: compileTarget,
+		SyncSource:    syncSource,
+		SyncTarget:    syncTarget,
+		ConflictID:    conflictID,
+		ApplyTarget:   applyTarget,
+		RollbackID:    rollbackID,
+		VerifyTarget:  verifyTarget,
+		DiffTarget:    diffTarget,
+		From:          "claude",
+		To:            "codex",
+		Project:       cwd,
+		ClaudeHome:    filepath.Join(homeDir, ".claude"),
+		CodexHome:     filepath.Join(homeDir, ".codex"),
+		Format:        "text",
 	}
 	opts := defaults
 
@@ -266,8 +280,8 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	if opts.Command == "resolve" && flagWasSet(flags, "format") {
 		return Options{}, usageError{message: "--format is not supported for resolve", code: 1}
 	}
-	if opts.Command != "plan" && opts.Command != "export" && opts.Out != "" {
-		return Options{}, usageError{message: "--out is supported only for plan and export codex", code: 1}
+	if opts.Command != "plan" && opts.Command != "export" && opts.Command != "compile" && opts.Out != "" {
+		return Options{}, usageError{message: "--out is supported only for plan, export codex, and compile codex", code: 1}
 	}
 	if opts.Command == "export" {
 		if flagWasSet(flags, "format") {
@@ -275,6 +289,14 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		}
 		if opts.Out == "" {
 			return Options{}, usageError{message: "export codex requires --out", code: 1}
+		}
+	}
+	if opts.Command == "compile" {
+		if flagWasSet(flags, "format") {
+			return Options{}, usageError{message: "--format is not supported for compile codex in agent-canon", code: 1}
+		}
+		if opts.Out == "" {
+			return Options{}, usageError{message: "compile codex requires --out", code: 1}
 		}
 	}
 	if err := validateApplyFlags(opts.Command, flags); err != nil {

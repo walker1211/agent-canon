@@ -106,6 +106,56 @@ func TestParseRejectsInvalidExportForms(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsCompileCodexOut(t *testing.T) {
+	root := t.TempDir()
+	opts, err := Parse([]string{"compile", "codex", "--project", root, "--out", "preview"}, root, root)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	if opts.Command != "compile" {
+		t.Fatalf("Command = %q, want compile", opts.Command)
+	}
+	if opts.CompileTarget != "codex" {
+		t.Fatalf("CompileTarget = %q, want codex", opts.CompileTarget)
+	}
+	if opts.Out != "preview" {
+		t.Fatalf("Out = %q, want preview", opts.Out)
+	}
+}
+
+func TestParseRejectsInvalidCompileForms(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing target", args: []string{"compile", "--project", root, "--out", "preview"}},
+		{name: "unsupported claude target", args: []string{"compile", "claude", "--project", root, "--out", "preview"}},
+		{name: "unsupported target", args: []string{"compile", "other", "--project", root, "--out", "preview"}},
+		{name: "extra arg", args: []string{"compile", "codex", "extra", "--project", root, "--out", "preview"}},
+		{name: "missing out", args: []string{"compile", "codex", "--project", root}},
+		{name: "json format", args: []string{"compile", "codex", "--project", root, "--format", "json", "--out", "preview"}},
+		{name: "text format", args: []string{"compile", "codex", "--project", root, "--format", "text", "--out", "preview"}},
+		{name: "include memory", args: []string{"compile", "codex", "--include-memory", "--project", root, "--out", "preview"}},
+		{name: "dry run", args: []string{"compile", "codex", "--dry-run", "--project", root, "--out", "preview"}},
+		{name: "yes", args: []string{"compile", "codex", "--yes", "--project", root, "--out", "preview"}},
+		{name: "global", args: []string{"compile", "codex", "--global", "--project", root, "--out", "preview"}},
+		{name: "ours", args: []string{"compile", "codex", "--ours", "--project", root, "--out", "preview"}},
+		{name: "manual", args: []string{"compile", "codex", "--manual", "merged value", "--project", root, "--out", "preview"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
 func TestParseValidatesFormat(t *testing.T) {
 	root := t.TempDir()
 	_, err := Parse([]string{"plan", "--project", root, "--format", "yaml"}, root, root)
@@ -618,7 +668,8 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 			}
 			help := stdout.String()
 			for _, want := range []string{
-				"scan, status, diff, conflicts, and verify are read-only",
+				"Write boundary",
+				"scan, status, diff, conflicts, verify, and compile validation are read-only",
 				"init writes only project .agent-canon",
 				"agent-canon init [flags]",
 				"agent-canon status [flags]",
@@ -626,8 +677,10 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon rollback <apply-id> [flags]",
 				"agent-canon import claude [flags]",
 				"agent-canon import codex [flags]",
+				"agent-canon compile codex --out <dir> [flags]",
 				"plan --out writes",
 				"export codex --out writes",
+				"compile codex --out writes",
 				"sync/resolve write only project .agent-canon",
 				"agent-canon sync claude codex [flags]",
 				"agent-canon conflicts [flags]",
