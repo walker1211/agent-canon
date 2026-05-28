@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  security-events: read
 
 jobs:
   preflight:
@@ -26,6 +27,11 @@ jobs:
 
       - name: Run history secret scan
         run: scripts/secret-scan.sh --history
+
+      - name: Run GitHub readiness audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/github-readiness.sh --repo "${GITHUB_REPOSITORY}" --strict
 
       - name: Run vet
         run: go vet ./...

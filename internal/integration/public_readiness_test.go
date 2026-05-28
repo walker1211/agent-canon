@@ -94,6 +94,22 @@ func TestPublicReadinessContributingDocumentsReleasePackaging(t *testing.T) {
 	}
 }
 
+func TestPublicReadinessContributingDocumentsReadinessExecution(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	contributing := readFileString(t, filepath.Join(repoRoot, "CONTRIBUTING.md"))
+	for _, want := range []string{
+		"scripts/github-readiness.sh --repo OWNER/REPO",
+		"scripts/github-readiness.sh --repo OWNER/REPO --strict",
+		"read-only",
+		"does not change GitHub settings",
+		"release preflight",
+	} {
+		if !strings.Contains(contributing, want) {
+			t.Fatalf("CONTRIBUTING.md missing readiness execution guidance %q", want)
+		}
+	}
+}
+
 func TestPublicReadinessFilesDoNotExposePrivateContent(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	for _, rel := range []string{
@@ -138,6 +154,25 @@ func TestPublicReadinessScriptChecksPrivateVulnerabilityReportingCorrectly(t *te
 	}
 }
 
+func TestPublicReadinessScriptSupportsStrictReadinessAudit(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	contents := readFileString(t, filepath.Join(repoRoot, "scripts", "github-readiness.sh"))
+	for _, want := range []string{
+		"command -v gh",
+		"command -v jq",
+		"--strict",
+		"--report-only",
+		"default_branch",
+		"repos/$repo/branches/$branch/protection",
+		"Settings > Code security and analysis",
+		"exit 1",
+	} {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("github-readiness.sh missing strict audit support %q", want)
+		}
+	}
+}
+
 func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	ci := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
@@ -147,7 +182,22 @@ func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 		}
 	}
 	release := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "release.yml"))
-	for _, want := range []string{"tags:", "v*", "fetch-depth: 0", "scripts/secret-scan.sh --history", "linux", "darwin", "windows", "amd64", "arm64", "checksums.txt", "gh release"} {
+	for _, want := range []string{
+		"tags:",
+		"v*",
+		"security-events: read",
+		"fetch-depth: 0",
+		"scripts/secret-scan.sh --history",
+		"GH_TOKEN: ${{ github.token }}",
+		"scripts/github-readiness.sh --repo \"${GITHUB_REPOSITORY}\" --strict",
+		"linux",
+		"darwin",
+		"windows",
+		"amd64",
+		"arm64",
+		"checksums.txt",
+		"gh release",
+	} {
 		if !strings.Contains(release, want) {
 			t.Fatalf("release.yml missing %q", want)
 		}

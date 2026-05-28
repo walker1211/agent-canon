@@ -62,6 +62,19 @@ Before submitting docs or templates, check public-facing files for obvious crede
 
 Also review examples manually for machine-specific absolute paths. Use placeholders such as `<repo-root>`, `~`, `<token>`, or `<REDACTED>` instead of real local or credential values.
 
+## GitHub Readiness Audit
+
+Maintainers can run the read-only GitHub readiness audit before making the repository public or before cutting a release:
+
+```sh
+scripts/github-readiness.sh --repo OWNER/REPO
+scripts/github-readiness.sh --repo OWNER/REPO --strict
+```
+
+The audit does not change GitHub settings. It reports Secret scanning, push protection, private vulnerability reporting, default branch protection or rulesets, and CodeQL/code-scanning status with remediation guidance for missing items.
+
+The release preflight runs the strict audit before publishing tag artifacts, so missing readiness settings stop the release before a GitHub Release is created or updated.
+
 ## Pull Request Requirements
 
 A pull request should include:
