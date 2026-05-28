@@ -392,6 +392,78 @@ func TestDiffJSONPropagatesWriteErrors(t *testing.T) {
 	}
 }
 
+func TestSyncTextPrintsSummaryAndRedactsWarnings(t *testing.T) {
+	var out strings.Builder
+	report := model.SyncStateReport{
+		Source:   "claude",
+		Target:   "codex",
+		Project:  "/repo",
+		Summary:  model.SyncSummary{Diffs: 1, OpenConflicts: 0, ResolvedConflicts: 0, Warnings: 1},
+		Warnings: []model.Warning{{Code: "secret", Message: "token=" + fixtureSecret}},
+	}
+
+	if err := render.SyncText(&out, report, "/repo/.agent-canon", "/repo/.agent-canon/sync-state.json"); err != nil {
+		t.Fatalf("SyncText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"agent-canon sync: claude -> codex",
+		"Project: /repo",
+		"Workspace: /repo/.agent-canon",
+		"State: /repo/.agent-canon/sync-state.json",
+		"Summary: diffs=1 open=0 resolved=0 warnings=1",
+		"Warnings:",
+		"- warning[secret]: token=" + security.RedactedValue,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("SyncText output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, fixtureSecret) {
+		t.Fatalf("SyncText leaked fixture secret:\n%s", text)
+	}
+}
+
+func TestConflictsTextPrintsConflictsAndRedactsWarnings(t *testing.T) {
+	var out strings.Builder
+	report := model.SyncStateReport{
+		Source:  "claude",
+		Target:  "codex",
+		Project: "/repo",
+		Conflicts: []model.Conflict{{
+			ID:           "conflict-001",
+			Kind:         model.ConflictKindContent,
+			ResourceID:   "instruction:project-claude-md",
+			ResourceKind: model.KindInstruction,
+			Status:       model.ConflictStatusOpen,
+		}},
+		Summary:  model.SyncSummary{Diffs: 1, OpenConflicts: 1, ResolvedConflicts: 0, Warnings: 1},
+		Warnings: []model.Warning{{Code: "secret", Message: "token=" + fixtureSecret}},
+	}
+
+	if err := render.ConflictsText(&out, report); err != nil {
+		t.Fatalf("ConflictsText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"agent-canon conflicts: claude -> codex",
+		"Project: /repo",
+		"Summary: open=1 resolved=0 diffs=1 warnings=1",
+		"Open conflicts:",
+		"- conflict-001 ContentConflict instruction:project-claude-md [Instruction]",
+		"Resolved conflicts: 0",
+		"Warnings:",
+		"- warning[secret]: token=" + security.RedactedValue,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ConflictsText output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, fixtureSecret) {
+		t.Fatalf("ConflictsText leaked fixture secret:\n%s", text)
+	}
+}
+
 func TestVerifyTextPrintsSummaryChecksAndRedactsWarnings(t *testing.T) {
 	var out strings.Builder
 	report := model.VerifyReport{

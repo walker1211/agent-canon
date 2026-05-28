@@ -264,7 +264,10 @@ func SyncText(writer io.Writer, report model.SyncStateReport, workspaceRoot stri
 	if err := out.line("State: %s", statePath); err != nil {
 		return err
 	}
-	return out.line("Summary: diffs=%d open=%d resolved=%d warnings=%d", report.Summary.Diffs, report.Summary.OpenConflicts, report.Summary.ResolvedConflicts, report.Summary.Warnings)
+	if err := out.line("Summary: diffs=%d open=%d resolved=%d warnings=%d", report.Summary.Diffs, report.Summary.OpenConflicts, report.Summary.ResolvedConflicts, report.Summary.Warnings); err != nil {
+		return err
+	}
+	return writeWarnings(out, report.Warnings)
 }
 
 func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
@@ -302,7 +305,10 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 	if err := out.blank(); err != nil {
 		return err
 	}
-	return out.line("Resolved conflicts: %d", report.Summary.ResolvedConflicts)
+	if err := out.line("Resolved conflicts: %d", report.Summary.ResolvedConflicts); err != nil {
+		return err
+	}
+	return writeWarnings(out, report.Warnings)
 }
 
 func ResolveText(writer io.Writer, conflictID string, decision model.ResolutionDecision, resolutionID string) error {
@@ -522,6 +528,25 @@ func VerifyText(writer io.Writer, report model.VerifyReport) error {
 		return err
 	}
 	for _, warning := range report.Warnings {
+		message, _ := security.RedactContent(warning.Message)
+		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeWarnings(out textWriter, warnings []model.Warning) error {
+	if len(warnings) == 0 {
+		return nil
+	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Warnings:"); err != nil {
+		return err
+	}
+	for _, warning := range warnings {
 		message, _ := security.RedactContent(warning.Message)
 		if err := out.line("- warning[%s]: %s", warning.Code, message); err != nil {
 			return err
