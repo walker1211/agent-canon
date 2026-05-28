@@ -14,6 +14,17 @@ import (
 )
 
 func runExport(opts cli.Options, stdout io.Writer) error {
+	switch opts.ExportTarget {
+	case "codex":
+		return runExportCodex(opts, stdout)
+	case "claude":
+		return runExportClaude(opts, stdout)
+	default:
+		return withExitCode(1, "unsupported export target %q", opts.ExportTarget)
+	}
+}
+
+func runExportCodex(opts cli.Options, stdout io.Writer) error {
 	if err := validateExportOutputRoot(opts); err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -36,6 +47,31 @@ func runExport(opts cli.Options, stdout io.Writer) error {
 		return withExitCode(1, "%w", err)
 	}
 	return writeLine(stdout, "wrote Codex preview to %s (%d files)", opts.Out, len(preview.Files))
+}
+
+func runExportClaude(opts cli.Options, stdout io.Writer) error {
+	if err := validateExportOutputRoot(opts); err != nil {
+		return withExitCode(1, "%w", err)
+	}
+	scanReport, err := scanner.Scan(scanner.Options{Project: opts.Project, ClaudeHome: opts.ClaudeHome, CodexHome: opts.CodexHome, IncludeMemory: opts.IncludeMemory})
+	if err != nil {
+		return mapScanError(err)
+	}
+	planReport := planner.Build(scanReport)
+	preview, err := exporter.BuildClaudePreview(scanReport, planReport)
+	if err != nil {
+		return withExitCode(1, "%w", err)
+	}
+	if err := exporter.WritePreview(opts.Out, preview); err != nil {
+		return withExitCode(1, "%w", err)
+	}
+	if err := writeLine(stdout, "agent-canon export claude"); err != nil {
+		return withExitCode(1, "%w", err)
+	}
+	if err := writeLine(stdout, "Project: %s", planReport.Project); err != nil {
+		return withExitCode(1, "%w", err)
+	}
+	return writeLine(stdout, "wrote Claude preview to %s (%d files)", opts.Out, len(preview.Files))
 }
 
 func validateExportOutputRoot(opts cli.Options) error {

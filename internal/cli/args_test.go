@@ -83,6 +83,24 @@ func TestParseAcceptsExportCodexOut(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsExportClaudeOut(t *testing.T) {
+	root := t.TempDir()
+	opts, err := Parse([]string{"export", "claude", "--project", root, "--out", "preview"}, root, root)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	if opts.Command != "export" {
+		t.Fatalf("Command = %q, want export", opts.Command)
+	}
+	if opts.ExportTarget != "claude" {
+		t.Fatalf("ExportTarget = %q, want claude", opts.ExportTarget)
+	}
+	if opts.Out != "preview" {
+		t.Fatalf("Out = %q, want preview", opts.Out)
+	}
+}
+
 func TestParseRejectsInvalidExportForms(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
@@ -90,9 +108,17 @@ func TestParseRejectsInvalidExportForms(t *testing.T) {
 		args []string
 	}{
 		{name: "missing target", args: []string{"export", "--project", root, "--out", "preview"}},
-		{name: "unsupported target", args: []string{"export", "claude", "--project", root, "--out", "preview"}},
-		{name: "missing out", args: []string{"export", "codex", "--project", root}},
-		{name: "format not supported", args: []string{"export", "codex", "--project", root, "--format", "json", "--out", "preview"}},
+		{name: "unsupported target", args: []string{"export", "other", "--project", root, "--out", "preview"}},
+		{name: "extra arg", args: []string{"export", "claude", "extra", "--project", root, "--out", "preview"}},
+		{name: "missing out", args: []string{"export", "claude", "--project", root}},
+		{name: "json format", args: []string{"export", "claude", "--project", root, "--format", "json", "--out", "preview"}},
+		{name: "text format", args: []string{"export", "claude", "--project", root, "--format", "text", "--out", "preview"}},
+		{name: "include memory", args: []string{"export", "claude", "--include-memory", "--project", root, "--out", "preview"}},
+		{name: "dry run", args: []string{"export", "claude", "--dry-run", "--project", root, "--out", "preview"}},
+		{name: "yes", args: []string{"export", "claude", "--yes", "--project", root, "--out", "preview"}},
+		{name: "global", args: []string{"export", "claude", "--global", "--project", root, "--out", "preview"}},
+		{name: "ours", args: []string{"export", "claude", "--ours", "--project", root, "--out", "preview"}},
+		{name: "manual", args: []string{"export", "claude", "--manual", "merged value", "--project", root, "--out", "preview"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse(tc.args, root, root)
@@ -675,11 +701,12 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"agent-canon status [flags]",
 				"agent-canon diff [codex] [flags]",
 				"agent-canon rollback <apply-id> [flags]",
+				"agent-canon export claude [flags]",
 				"agent-canon import claude [flags]",
 				"agent-canon import codex [flags]",
 				"agent-canon compile codex --out <dir> [flags]",
 				"plan --out writes",
-				"export codex --out writes",
+				"export claude/codex --out writes",
 				"compile codex --out writes",
 				"sync/resolve write only project .agent-canon",
 				"agent-canon sync claude codex [flags]",

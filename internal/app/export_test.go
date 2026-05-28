@@ -47,6 +47,42 @@ func TestRunExportCodexWritesPreviewAndPrintsShortSummary(t *testing.T) {
 	}
 }
 
+func TestRunExportClaudeWritesPreviewAndPrintsShortSummary(t *testing.T) {
+	fixture := basicFixture(t)
+	outDir := filepath.Join(t.TempDir(), "claude-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	for _, path := range []string{
+		"CLAUDE.md",
+		filepath.Join(".claude", "settings.json"),
+		filepath.Join(".claude", "skills", "sample-skill", "SKILL.md"),
+		"migration-report.md",
+	} {
+		assertFileExists(t, filepath.Join(outDir, path))
+	}
+	project, err := filepath.Abs(fixture.project)
+	if err != nil {
+		t.Fatalf("resolve fixture project: %v", err)
+	}
+	for _, want := range []string{
+		"agent-canon export claude",
+		"Project: " + project,
+		"wrote Claude preview to " + outDir,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q in %q", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "# CLAUDE.md preview") || strings.Contains(stdout.String(), "# Migration report") {
+		t.Fatalf("stdout contains full preview contents, want short summary only: %q", stdout.String())
+	}
+}
+
 func TestRunExportMalformedSettingsJSONReturnsExitTwo(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
@@ -151,11 +187,13 @@ func TestRunExportRejectsSymlinkedOutputInsideClaudeOrCodexHome(t *testing.T) {
 func TestRunExportRejectsOutputInsideClaudeOrCodexHome(t *testing.T) {
 	cases := []struct {
 		name       string
+		target     string
 		out        func(fixturePaths) string
 		writeCheck func(fixturePaths) string
 	}{
 		{
-			name: "claude home",
+			name:   "codex to claude home",
+			target: "codex",
 			out: func(f fixturePaths) string {
 				return f.claudeHome
 			},
@@ -164,7 +202,8 @@ func TestRunExportRejectsOutputInsideClaudeOrCodexHome(t *testing.T) {
 			},
 		},
 		{
-			name: "codex home",
+			name:   "codex to codex home",
+			target: "codex",
 			out: func(f fixturePaths) string {
 				return f.codexHome
 			},
@@ -173,12 +212,33 @@ func TestRunExportRejectsOutputInsideClaudeOrCodexHome(t *testing.T) {
 			},
 		},
 		{
-			name: "inside codex home",
+			name:   "codex inside codex home",
+			target: "codex",
 			out: func(f fixturePaths) string {
 				return filepath.Join(f.codexHome, "preview")
 			},
 			writeCheck: func(f fixturePaths) string {
 				return filepath.Join(f.codexHome, "preview", "AGENTS.md")
+			},
+		},
+		{
+			name:   "claude to claude home",
+			target: "claude",
+			out: func(f fixturePaths) string {
+				return f.claudeHome
+			},
+			writeCheck: func(f fixturePaths) string {
+				return filepath.Join(f.claudeHome, "CLAUDE.md")
+			},
+		},
+		{
+			name:   "claude inside codex home",
+			target: "claude",
+			out: func(f fixturePaths) string {
+				return filepath.Join(f.codexHome, "preview")
+			},
+			writeCheck: func(f fixturePaths) string {
+				return filepath.Join(f.codexHome, "preview", "CLAUDE.md")
 			},
 		},
 	}
@@ -197,7 +257,7 @@ func TestRunExportRejectsOutputInsideClaudeOrCodexHome(t *testing.T) {
 			mustMkdir(t, fixture.codexHome)
 			var stdout, stderr bytes.Buffer
 
-			code := app.Run([]string{"export", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", tc.out(fixture)}, fixture.project, fixture.home, &stdout, &stderr)
+			code := app.Run([]string{"export", tc.target, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", tc.out(fixture)}, fixture.project, fixture.home, &stdout, &stderr)
 			if code != 1 {
 				t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
@@ -206,6 +266,25 @@ func TestRunExportRejectsOutputInsideClaudeOrCodexHome(t *testing.T) {
 			}
 			assertPathMissing(t, tc.writeCheck(fixture))
 		})
+	}
+}
+
+func TestRunExportClaudeDoesNotLeakSecrets(t *testing.T) {
+	fixture := copiedFixture(t, "secrets")
+	const secret = "ghp_agent_canon_fixture_secret_must_not_leak"
+	outDir := filepath.Join(t.TempDir(), "claude-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {
+		t.Fatalf("export output leaked secret; stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	previewText := readTreeText(t, outDir)
+	if strings.Contains(previewText, secret) {
+		t.Fatalf("export preview leaked secret")
 	}
 }
 

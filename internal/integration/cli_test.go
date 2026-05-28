@@ -164,6 +164,31 @@ func TestExportCodexWritesPreviewTreeAndLeavesFixtureInputsUnchanged(t *testing.
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestExportClaudeWritesPreviewTreeAndLeavesFixtureInputsUnchanged(t *testing.T) {
+	fixture := fixturePathsFor(t, "basic")
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "claude-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	for _, path := range []string{
+		"CLAUDE.md",
+		filepath.Join(".claude", "settings.json"),
+		filepath.Join(".claude", "skills", "sample-skill", "SKILL.md"),
+		"migration-report.md",
+	} {
+		assertFileExists(t, filepath.Join(outDir, path))
+	}
+	if !strings.Contains(stdout.String(), "agent-canon export claude") || !strings.Contains(stdout.String(), "wrote Claude preview") {
+		t.Fatalf("stdout missing Claude export summary: %q", stdout.String())
+	}
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
 func TestExportCodexRejectsExistingNonEmptyPreviewDir(t *testing.T) {
 	fixture := fixturePathsFor(t, "basic")
 	before := snapshotFiles(t, fixture.root)
@@ -196,6 +221,22 @@ func TestSecretFixtureExportDoesNotLeakToCLIOutputsOrGeneratedFiles(t *testing.T
 	code := app.Run([]string{"export", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
 	assertDoesNotContainSecret(t, stdout.String(), "stdout")
 	assertDoesNotContainSecret(t, stderr.String(), "stderr")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, outDir)
+	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestSecretFixtureExportClaudeDoesNotLeakToCLIOutputsOrGeneratedFiles(t *testing.T) {
+	fixture := fixturePathsFor(t, "secrets")
+	before := snapshotFiles(t, fixture.root)
+	outDir := filepath.Join(t.TempDir(), "claude-preview")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"export", "claude", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome, "--out", outDir}, fixture.project, fixture.home, &stdout, &stderr)
+	assertDoesNotContainSecret(t, stdout.String(), "claude export stdout")
+	assertDoesNotContainSecret(t, stderr.String(), "claude export stderr")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout.String()), redactSecret(stderr.String()))
 	}

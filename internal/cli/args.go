@@ -11,7 +11,7 @@ import (
 
 const helpText = `agent-canon is a migration inventory, import, plan, sync, conflict, preview export, compile, apply, verify, workspace lifecycle, and rollback tool.
 
-Write boundary: scan, status, diff, conflicts, verify, and compile validation are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export codex --out writes a Codex preview directory; compile codex --out writes a Codex preview directory after baseline and conflict checks; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
+Write boundary: scan, status, diff, conflicts, verify, and compile validation are read-only; init writes only project .agent-canon; import claude/codex writes only project .agent-canon import metadata and the selected baseline snapshot; plan --out writes a JSON plan file; export claude/codex --out writes a preview directory; compile codex --out writes a Codex preview directory after baseline and conflict checks; sync/resolve write only project .agent-canon; apply codex writes Codex target files only after conflict checks, backup, and confirmation; rollback writes only manifest-listed targets after drift checks and confirmation.
 
 Usage:
   agent-canon init [flags]
@@ -19,6 +19,7 @@ Usage:
   agent-canon status [flags]
   agent-canon diff [codex] [flags]
   agent-canon plan [flags]
+  agent-canon export claude [flags]
   agent-canon export codex [flags]
   agent-canon import claude [flags]
   agent-canon import codex [flags]
@@ -40,7 +41,8 @@ Commands:
   scan          Read-only inventory of Claude and Codex resources
   status        Read-only project .agent-canon workspace status
   diff          Read-only diff from base snapshots to current Claude/Codex state
-  plan          Read-only migration plan generation except when --out writes a JSON plan file
+  plan           Read-only migration plan generation except when --out writes a JSON plan file
+  export claude  Write a Claude preview directory only when --out is set
   export codex   Write a Codex preview directory only when --out is set
   import claude  Import current Claude state into project .agent-canon metadata
   import codex   Import current Codex state into project .agent-canon metadata
@@ -61,7 +63,7 @@ Flags:
   --claude-home string   Claude Code home (default ~/.claude)
   --codex-home string    Codex home (default ~/.codex)
   --format string        init/scan/status/diff/plan/import/sync/conflicts/verify output format: text or json (default "text")
-  --out string           plan: write JSON plan to this path; export/compile codex: write preview directory to this path
+  --out string           plan: write JSON plan to this path; export claude/codex and compile codex: write preview directory to this path
   --include-memory       scan/plan/import/sync/diff/verify memory indexes and candidates only; does not migrate content
   --dry-run              apply codex/rollback: show planned changes without writing
   --yes                  apply codex/rollback: skip interactive confirmation
@@ -150,10 +152,10 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		}
 	case "export":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "export requires target codex", code: 1}
+			return Options{}, usageError{message: "export requires target claude or codex", code: 1}
 		}
 		exportTarget = flagArgs[0]
-		if exportTarget != "codex" {
+		if exportTarget != "claude" && exportTarget != "codex" {
 			return Options{}, usageError{message: fmt.Sprintf("unsupported export target %q", exportTarget), code: 1}
 		}
 		flagArgs = flagArgs[1:]
@@ -281,14 +283,14 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		return Options{}, usageError{message: "--format is not supported for resolve", code: 1}
 	}
 	if opts.Command != "plan" && opts.Command != "export" && opts.Command != "compile" && opts.Out != "" {
-		return Options{}, usageError{message: "--out is supported only for plan, export codex, and compile codex", code: 1}
+		return Options{}, usageError{message: "--out is supported only for plan, export claude/codex, and compile codex", code: 1}
 	}
 	if opts.Command == "export" {
 		if flagWasSet(flags, "format") {
-			return Options{}, usageError{message: "--format is not supported for export codex", code: 1}
+			return Options{}, usageError{message: "--format is not supported for export", code: 1}
 		}
 		if opts.Out == "" {
-			return Options{}, usageError{message: "export codex requires --out", code: 1}
+			return Options{}, usageError{message: fmt.Sprintf("export %s requires --out", opts.ExportTarget), code: 1}
 		}
 	}
 	if opts.Command == "compile" {
