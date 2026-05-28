@@ -56,10 +56,17 @@ func TestScanTextIncludesHeaderProjectAndGroupedSections(t *testing.T) {
 	for _, want := range []string{
 		"agent-canon scan: claude -> codex",
 		"Project: /repo",
+		"Next steps:",
+		"- Run `agent-canon plan` to review proposed actions.",
+		"- Review Partial, Unsupported, and Dangerous sections before applying changes.",
 		"Compatible:",
+		"  These resources can be included in generated Codex previews.",
 		"Partial:",
+		"  These resources need review after generation because the target format is not equivalent.",
 		"Unsupported:",
+		"  These resources are skipped and need manual handling outside agent-canon.",
 		"Dangerous:",
+		"  These resources contain sensitive or risky content and must be reviewed before any write.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ScanText output missing %q:\n%s", want, text)
@@ -78,11 +85,21 @@ func TestPlanTextIncludesHeaderProjectAndGroupedSections(t *testing.T) {
 	for _, want := range []string{
 		"agent-canon plan: claude -> codex",
 		"Project: /repo",
+		"Next steps:",
+		"- Run `agent-canon compile codex --out <dir>` to inspect generated files.",
+		"- Run `agent-canon apply codex --dry-run` before any write.",
 		"create-or-merge:",
+		"  These operations are candidates for generated preview files.",
 		"manual:",
+		"  Review these operations before trusting generated output.",
 		"skip:",
+		"  These operations are intentionally not written by agent-canon.",
 		"redact:",
+		"  These operations contain redacted sensitive content and require manual review.",
 		"Requires review:",
+		"- op-002 skill:two [Skill] action=manual strategy=review-skill status=partial",
+		"- op-003 session:three [Session] action=skip strategy=skip-session status=unsupported",
+		"- op-004 mcp:four [MCPServer] action=redact strategy=redact-env status=dangerous",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("PlanText output missing %q:\n%s", want, text)

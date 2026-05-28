@@ -20,20 +20,36 @@ func ScanText(writer io.Writer, report model.ScanReport) error {
 	if err := out.line("Summary: compatible=%d partial=%d unsupported=%d dangerous=%d", report.Summary.Compatible, report.Summary.Partial, report.Summary.Unsupported, report.Summary.Dangerous); err != nil {
 		return err
 	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Next steps:"); err != nil {
+		return err
+	}
+	if err := out.line("- Run `agent-canon plan` to review proposed actions."); err != nil {
+		return err
+	}
+	if err := out.line("- Review Partial, Unsupported, and Dangerous sections before applying changes."); err != nil {
+		return err
+	}
 	groups := []struct {
-		title  string
-		status model.Status
+		title       string
+		status      model.Status
+		description string
 	}{
-		{title: "Compatible", status: model.StatusCompatible},
-		{title: "Partial", status: model.StatusPartial},
-		{title: "Unsupported", status: model.StatusUnsupported},
-		{title: "Dangerous", status: model.StatusDangerous},
+		{title: "Compatible", status: model.StatusCompatible, description: "These resources can be included in generated Codex previews."},
+		{title: "Partial", status: model.StatusPartial, description: "These resources need review after generation because the target format is not equivalent."},
+		{title: "Unsupported", status: model.StatusUnsupported, description: "These resources are skipped and need manual handling outside agent-canon."},
+		{title: "Dangerous", status: model.StatusDangerous, description: "These resources contain sensitive or risky content and must be reviewed before any write."},
 	}
 	for _, group := range groups {
 		if err := out.blank(); err != nil {
 			return err
 		}
 		if err := out.line("%s:", group.title); err != nil {
+			return err
+		}
+		if err := out.line("  %s", group.description); err != nil {
 			return err
 		}
 		found := false
@@ -66,6 +82,18 @@ func PlanText(writer io.Writer, report model.PlanReport) error {
 	if err := out.line("Summary: modify=%d skip=%d manual=%d dangerous=%d", report.Summary.Modify, report.Summary.Skip, report.Summary.Manual, report.Summary.Dangerous); err != nil {
 		return err
 	}
+	if err := out.blank(); err != nil {
+		return err
+	}
+	if err := out.line("Next steps:"); err != nil {
+		return err
+	}
+	if err := out.line("- Run `agent-canon compile codex --out <dir>` to inspect generated files."); err != nil {
+		return err
+	}
+	if err := out.line("- Run `agent-canon apply codex --dry-run` before any write."); err != nil {
+		return err
+	}
 
 	actions := actionOrder(report.Operations)
 	for _, action := range actions {
@@ -73,6 +101,9 @@ func PlanText(writer io.Writer, report model.PlanReport) error {
 			return err
 		}
 		if err := out.line("%s:", action); err != nil {
+			return err
+		}
+		if err := out.line("  %s", actionDescription(action)); err != nil {
 			return err
 		}
 		for _, operation := range report.Operations {
@@ -101,7 +132,7 @@ func PlanText(writer io.Writer, report model.PlanReport) error {
 			continue
 		}
 		found = true
-		if err := out.line("- %s %s", operation.ID, operation.ResourceID); err != nil {
+		if err := out.line("- %s %s [%s] action=%s strategy=%s status=%s", operation.ID, operation.ResourceID, operation.Kind, operation.Action, operation.Strategy, operation.Status); err != nil {
 			return err
 		}
 	}
@@ -599,6 +630,21 @@ func rollbackOperation(action model.ApplyAction) string {
 		return "noop"
 	default:
 		return string(action)
+	}
+}
+
+func actionDescription(action string) string {
+	switch action {
+	case "create-or-merge":
+		return "These operations are candidates for generated preview files."
+	case "manual":
+		return "Review these operations before trusting generated output."
+	case "skip":
+		return "These operations are intentionally not written by agent-canon."
+	case "redact":
+		return "These operations contain redacted sensitive content and require manual review."
+	default:
+		return "Review these operations before applying changes."
 	}
 }
 
