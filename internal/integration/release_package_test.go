@@ -117,7 +117,7 @@ func TestReleaseScriptsContracts(t *testing.T) {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	ciLocal := readFileString(t, filepath.Join(repoRoot, "scripts", "ci-local.sh"))
-	for _, want := range []string{"clean", "scripts/secret-scan.sh", "go vet ./...", "go test ./...", "scripts/package-release.sh"} {
+	for _, want := range []string{"clean", "git -C \"$work_dir\" init -q", "git -C \"$work_dir\" add -A", "scripts/secret-scan.sh", "go vet ./...", "go test ./...", "scripts/package-release.sh"} {
 		if !strings.Contains(ciLocal, want) {
 			t.Fatalf("ci-local.sh missing %q", want)
 		}
