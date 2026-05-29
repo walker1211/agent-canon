@@ -99,6 +99,52 @@ func TestCompareClassifiesSecurityAndCapabilityConflicts(t *testing.T) {
 	}
 }
 
+func TestCompareDoesNotConflictForSkippedSessions(t *testing.T) {
+	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("session:global-123", model.KindSession, "claude", "hash-session", model.StatusUnsupported, "skip-session-migration", nil))
+
+	result := Compare(Input{CurrentClaude: currentClaude})
+
+	if len(result.Diffs) != 1 {
+		t.Fatalf("diffs = %#v, want one", result.Diffs)
+	}
+	if len(result.Conflicts) != 0 {
+		t.Fatalf("conflicts = %#v, want none", result.Conflicts)
+	}
+}
+
+func TestCompareDoesNotConflictForReviewPathScopedRules(t *testing.T) {
+	warning := []model.Warning{{Code: "secret-redacted", Message: "redacted"}}
+	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "claude", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", warning))
+	baseCodex := snapshotReport("codex", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "codex", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", nil))
+	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "claude", "hash-rule", model.StatusPartial, "review-path-scoped-rule", warning))
+	currentCodex := snapshotReport("codex", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "codex", "hash-agents", model.StatusPartial, "review-path-scoped-rule", nil))
+
+	result := Compare(Input{BaseClaude: baseClaude, BaseCodex: baseCodex, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
+
+	if len(result.Diffs) != 1 {
+		t.Fatalf("diffs = %#v, want one", result.Diffs)
+	}
+	if len(result.Conflicts) != 0 {
+		t.Fatalf("conflicts = %#v, want none", result.Conflicts)
+	}
+}
+
+func TestCompareDoesNotConflictWhenCurrentStatesConverge(t *testing.T) {
+	warning := []model.Warning{{Code: "secret-redacted", Message: "redacted"}}
+	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("skill:global-skill-creator", model.KindSkill, "claude", "hash-skill", model.StatusPartial, "convert-skill-with-review", warning))
+	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("skill:global-skill-creator", model.KindSkill, "claude", "hash-skill", model.StatusPartial, "convert-skill-with-review", warning))
+	currentCodex := snapshotReport("codex", stateWithKindAndStrategy("skill:global-skill-creator", model.KindSkill, "codex", "hash-skill", model.StatusPartial, "convert-skill-with-review", warning))
+
+	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
+
+	if len(result.Diffs) != 1 {
+		t.Fatalf("diffs = %#v, want one", result.Diffs)
+	}
+	if len(result.Conflicts) != 0 {
+		t.Fatalf("conflicts = %#v, want none", result.Conflicts)
+	}
+}
+
 func TestCompareConflictIDsAreDeterministic(t *testing.T) {
 	baseClaude := snapshotReport("claude", state("b", "claude", "base", model.StatusCompatible, nil), state("a", "claude", "base", model.StatusCompatible, nil))
 	baseCodex := snapshotReport("codex", state("b", "codex", "base", model.StatusCompatible, nil), state("a", "codex", "base", model.StatusCompatible, nil))
@@ -149,13 +195,17 @@ func state(id string, tool string, hash string, status model.Status, warnings []
 }
 
 func stateWithKind(id string, kind model.ResourceKind, tool string, hash string, status model.Status, warnings []model.Warning) model.ResourceState {
+	return stateWithKindAndStrategy(id, kind, tool, hash, status, "test-strategy", warnings)
+}
+
+func stateWithKindAndStrategy(id string, kind model.ResourceKind, tool string, hash string, status model.Status, strategy string, warnings []model.Warning) model.ResourceState {
 	return model.ResourceState{
 		ID:          id,
 		Kind:        kind,
 		Scope:       model.ScopeProject,
 		Tool:        tool,
 		Status:      status,
-		Strategy:    "test-strategy",
+		Strategy:    strategy,
 		ContentHash: hash,
 		Warnings:    warnings,
 	}
