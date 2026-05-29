@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -120,7 +121,33 @@ func buildDiff(id string, baseClaude *model.ResourceState, baseCodex *model.Reso
 }
 
 func isNonActionableDiff(baseClaude *model.ResourceState, baseCodex *model.ResourceState, ours *model.ResourceState, theirs *model.ResourceState) bool {
-	return currentStatesEquivalent(ours, theirs) || isSkippedSession(baseClaude, baseCodex, ours, theirs) || isPluginAdaptation(baseClaude, baseCodex, ours, theirs)
+	return currentStatesEquivalent(ours, theirs) || isSkippedSession(baseClaude, baseCodex, ours, theirs) || isPluginAdaptation(baseClaude, baseCodex, ours, theirs) || isAgentsAggregateTargetDrift(baseClaude, ours, theirs)
+}
+
+func isAgentsAggregateTargetDrift(baseClaude *model.ResourceState, ours *model.ResourceState, theirs *model.ResourceState) bool {
+	if sourceContentChanged(baseClaude, ours) || ours == nil || theirs == nil {
+		return false
+	}
+	return isAgentsAggregateState(ours) && isAgentsAggregateState(theirs) && filepath.Base(theirs.Path) == "AGENTS.md"
+}
+
+func sourceContentChanged(base *model.ResourceState, current *model.ResourceState) bool {
+	if base == nil || current == nil {
+		return base != current
+	}
+	return hashOf(base) != hashOf(current)
+}
+
+func isAgentsAggregateState(state *model.ResourceState) bool {
+	if state.Kind != model.KindInstruction && state.Kind != model.KindRule {
+		return false
+	}
+	switch state.Strategy {
+	case "append-to-agents-md", "merge-section-into-agents-md", "merge-rule-into-agents-md", "review-path-scoped-rule":
+		return true
+	default:
+		return false
+	}
 }
 
 func classifyConflict(changedOurs bool, changedTheirs bool, states ...*model.ResourceState) (model.ConflictKind, bool) {
