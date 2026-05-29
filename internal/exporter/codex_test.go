@@ -47,6 +47,48 @@ func TestBuildCodexPreviewAgentsContainsInstructionsAndRulesWithoutAbsolutePaths
 	}
 }
 
+func TestBuildCodexPreviewDoesNotFlattenPathScopedRules(t *testing.T) {
+	instructionPath := writeTempFile(t, "CLAUDE.md", "# Global\n\nAlways-on guidance.\n")
+	rulePath := writeTempFile(t, "go.md", "---\npaths:\n  - \"**/*.go\"\n---\n\n# Go Rule\n\nUse Go-specific guidance only when Go files are in scope.\n")
+	preview := buildSyntheticPreview(t,
+		model.Resource{
+			ID:         "instruction:global-claude-md",
+			Kind:       model.KindInstruction,
+			Scope:      model.ScopeGlobal,
+			SourcePath: instructionPath,
+			Status:     model.StatusCompatible,
+			Strategy:   "append-to-agents-md",
+		},
+		model.Resource{
+			ID:         "rule:global-go",
+			Kind:       model.KindRule,
+			Scope:      model.ScopeGlobal,
+			SourcePath: rulePath,
+			Status:     model.StatusPartial,
+			Strategy:   "review-path-scoped-rule",
+			Warnings: []model.Warning{{
+				Code:    "path-scoped-rule-review",
+				Message: "Claude rule uses paths frontmatter; review manually before placing it in an always-on Codex AGENTS.md file.",
+			}},
+		},
+	)
+
+	agents := string(requireFile(t, preview, "AGENTS.md").Contents)
+	if strings.Contains(agents, "rule:global-go") || strings.Contains(agents, "Use Go-specific guidance only when Go files are in scope.") {
+		t.Fatalf("AGENTS.md flattened path-scoped rule:\n%s", agents)
+	}
+	if !strings.Contains(agents, "Always-on guidance.") {
+		t.Fatalf("AGENTS.md missing compatible instruction:\n%s", agents)
+	}
+
+	report := string(requireFile(t, preview, "migration-report.md").Contents)
+	for _, want := range []string{"rule:global-go", "review-required resources", "path-scoped-rule-review"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("migration report missing %q in:\n%s", want, report)
+		}
+	}
+}
+
 func TestBuildCodexPreviewUnsupportedFixtureReportsSkippedReviewResourcesWithoutGeneratingThem(t *testing.T) {
 	preview := buildPreview(t, "unsupported")
 	report := string(requireFile(t, preview, "migration-report.md").Contents)
@@ -146,6 +188,29 @@ func TestBuildCodexPreviewGeneratesPartialCommandPreview(t *testing.T) {
 	contents := string(file.Contents)
 	if !strings.Contains(contents, "Lossy command-to-skill conversion") || !strings.Contains(contents, "Run deployment steps.") {
 		t.Fatalf("command preview missing conversion header or source content:\n%s", contents)
+	}
+}
+
+func TestBuildCodexPreviewPreservesSkillFrontmatter(t *testing.T) {
+	sourcePath := writeTempFile(t, filepath.Join("find-skills", "SKILL.md"), "---\nname: find-skills\ndescription: Locate available skills.\n---\n\n# Find Skills\n\nUse this skill to find other skills.\n")
+	preview := buildSyntheticPreview(t, model.Resource{
+		ID:         "skill:global-find-skills",
+		Kind:       model.KindSkill,
+		Scope:      model.ScopeGlobal,
+		SourcePath: sourcePath,
+		Status:     model.StatusPartial,
+		Strategy:   "convert-skill-with-review",
+	})
+
+	contents := string(requireFile(t, preview, ".agents/skills/find-skills/SKILL.md").Contents)
+	if !strings.HasPrefix(contents, "---\nname: find-skills") {
+		t.Fatalf("skill preview did not preserve frontmatter at top:\n%s", contents)
+	}
+	if !strings.Contains(contents, "description: Locate available skills.") {
+		t.Fatalf("skill preview did not preserve frontmatter metadata:\n%s", contents)
+	}
+	if strings.Contains(contents, "Generated Codex skill candidate") {
+		t.Fatalf("skill preview contains generated marker before copied skill content:\n%s", contents)
 	}
 }
 

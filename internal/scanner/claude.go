@@ -31,7 +31,9 @@ func scanClaudeHome(claudeHome string, codexHome string, targets codexTargets) [
 			if !ok {
 				continue
 			}
-			resource := newResource("rule:global-"+slug(path), model.KindRule, model.ScopeGlobal, path, globalAgentsHint, model.StatusCompatible, "merge-rule-into-agents-md")
+			status, strategy, warnings := ruleMigrationPlan(path)
+			resource := newResource("rule:global-"+slug(path), model.KindRule, model.ScopeGlobal, path, globalAgentsHint, status, strategy)
+			resource.Warnings = append(resource.Warnings, warnings...)
 			addCodexTargetWarning(&resource, targets.GlobalAgents)
 			resources = append(resources, resource)
 		}
@@ -199,6 +201,38 @@ func scanEntries(root string, kind model.ResourceKind, scope model.Scope, idPref
 		resources = append(resources, newResource(idPrefix+name, kind, scope, path, targetHint(name), model.StatusPartial, strategy))
 	}
 	return resources
+}
+
+func ruleMigrationPlan(path string) (model.Status, string, []model.Warning) {
+	if !hasPathScopedFrontmatter(path) {
+		return model.StatusCompatible, "merge-rule-into-agents-md", nil
+	}
+	warning := model.Warning{
+		Code:    "path-scoped-rule-review",
+		Message: "Claude rule uses paths frontmatter; review manually before placing it in an always-on Codex AGENTS.md file.",
+	}
+	return model.StatusPartial, "review-path-scoped-rule", []model.Warning{warning}
+}
+
+func hasPathScopedFrontmatter(path string) bool {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(strings.TrimPrefix(string(contents), "\ufeff"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return false
+	}
+	for _, line := range lines[1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			return false
+		}
+		if strings.HasPrefix(trimmed, "paths:") {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldSkipEntry(path string) bool {

@@ -164,6 +164,70 @@ func TestScanIgnoresHiddenSystemEntries(t *testing.T) {
 	}
 }
 
+func TestScanMarksPathScopedRulesForManualReview(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+
+	writeFile(t, filepath.Join(claudeHome, "rules", "go.md"), "\ufeff---\npaths:\n  - \"**/*.go\"\n---\n\n# Go Rule\n\nUse Go-specific guidance only when Go files are in scope.\n")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("create codex home: %v", err)
+	}
+
+	report, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	rule := requireResource(t, report.Resources, "rule:global-go")
+	assertResource(t, rule, model.KindRule, model.ScopeGlobal, model.StatusPartial)
+	if rule.Strategy != "review-path-scoped-rule" {
+		t.Fatalf("rule strategy = %q, want review-path-scoped-rule", rule.Strategy)
+	}
+	if !hasWarningCode(rule.Warnings, "path-scoped-rule-review") {
+		t.Fatalf("rule warnings missing path-scoped-rule-review: %#v", rule.Warnings)
+	}
+
+	plan := planner.Build(report)
+	operation := requireOperation(t, plan.Operations, rule.ID)
+	if operation.Action != "manual" || !operation.RequiresReview {
+		t.Fatalf("operation = %#v, want manual review", operation)
+	}
+}
+
+func TestScanKeepsRulesCompatibleWhenPathsAppearOutsideFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+
+	writeFile(t, filepath.Join(claudeHome, "rules", "style.md"), "---\ndescription: Style guidance.\n---\n\n# Style Rule\n\nThe body may mention paths: without making this path-scoped.\n")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("create codex home: %v", err)
+	}
+
+	report, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	rule := requireResource(t, report.Resources, "rule:global-style")
+	assertResource(t, rule, model.KindRule, model.ScopeGlobal, model.StatusCompatible)
+	if rule.Strategy != "merge-rule-into-agents-md" {
+		t.Fatalf("rule strategy = %q, want merge-rule-into-agents-md", rule.Strategy)
+	}
+	if hasWarningCode(rule.Warnings, "path-scoped-rule-review") {
+		t.Fatalf("rule warnings unexpectedly include path-scoped-rule-review: %#v", rule.Warnings)
+	}
+}
+
 func TestScanPartialResourcesUseTargetHintsAndStableStrategies(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
