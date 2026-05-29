@@ -83,6 +83,15 @@ printf '\n'
 
 missing=0
 
+api_json() {
+  endpoint=$1
+  if payload=$(gh api "$endpoint" 2>/dev/null); then
+    printf '%s\n' "$payload"
+    return 0
+  fi
+  return 1
+}
+
 print_status() {
   label=$1
   value=$2
@@ -109,7 +118,7 @@ require_enabled_status() {
   fi
 }
 
-repo_json=$(gh api "repos/$repo" 2>/dev/null || true)
+repo_json=$(api_json "repos/$repo" || true)
 if [ -z "$repo_json" ]; then
   mark_not_ready "repository metadata" "unavailable" "check gh authentication and repository access"
 else
@@ -128,7 +137,7 @@ else
   mark_not_ready "default branch" "unavailable" "check repository metadata access or pass --branch explicitly"
 fi
 
-pvr_json=$(gh api "repos/$repo/private-vulnerability-reporting" 2>/dev/null || true)
+pvr_json=$(api_json "repos/$repo/private-vulnerability-reporting" || true)
 if [ -z "$pvr_json" ]; then
   mark_not_ready "private vulnerability reporting" "unavailable" "enable private vulnerability reporting or check public repository/admin permission"
 else
@@ -142,7 +151,7 @@ fi
 
 branch_ready=false
 if [ -n "$branch" ]; then
-  branch_json=$(gh api "repos/$repo/branches/$branch/protection" 2>/dev/null || true)
+  branch_json=$(api_json "repos/$repo/branches/$branch/protection" || true)
   if [ -n "$branch_json" ]; then
     required_checks=$(printf '%s' "$branch_json" | jq -r 'if .required_status_checks then "enabled" else "missing" end')
     if [ "$required_checks" = enabled ]; then
@@ -155,15 +164,15 @@ if [ -n "$branch" ]; then
 fi
 
 if [ "$branch_ready" != true ]; then
-  rulesets_json=$(gh api "repos/$repo/rulesets" 2>/dev/null || true)
-  if [ -n "$rulesets_json" ] && [ "$(printf '%s' "$rulesets_json" | jq 'length')" -gt 0 ]; then
-    print_status "default branch protection or rulesets" "rulesets present"
+  rulesets_json=$(api_json "repos/$repo/rulesets" || true)
+  if [ -n "$rulesets_json" ] && printf '%s' "$rulesets_json" | jq -e 'any(.[]?.rules[]?; .type == "required_status_checks")' >/dev/null; then
+    print_status "default branch protection or rulesets" "rulesets present; required status checks enabled"
   else
     mark_not_ready "default branch protection or rulesets" "missing or unavailable" "add a main/default branch protection rule or repository ruleset requiring CI"
   fi
 fi
 
-code_scanning_json=$(gh api "repos/$repo/code-scanning/alerts?state=open&per_page=1" 2>/dev/null || true)
+code_scanning_json=$(api_json "repos/$repo/code-scanning/alerts?state=open&per_page=1" || true)
 if [ -z "$code_scanning_json" ]; then
   mark_not_ready "CodeQL / code-scanning" "unavailable" "enable CodeQL or code scanning and ensure security-events read permission"
 else

@@ -164,11 +164,62 @@ func TestPublicReadinessScriptSupportsStrictReadinessAudit(t *testing.T) {
 		"--report-only",
 		"default_branch",
 		"repos/$repo/branches/$branch/protection",
+		"required_status_checks",
 		"Settings > Code security and analysis",
 		"exit 1",
 	} {
 		if !strings.Contains(contents, want) {
 			t.Fatalf("github-readiness.sh missing strict audit support %q", want)
+		}
+	}
+}
+
+func TestPublicReadinessScriptTreatsFailedGitHubAPIResponsesAsUnavailable(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	fakeBin := t.TempDir()
+	fakeGH := filepath.Join(fakeBin, "gh")
+	fakeGHScript := `#!/bin/sh
+if [ "$1" = "api" ]; then
+  case "$2" in
+    repos/OWNER/REPO)
+      printf '{"default_branch":"main","security_and_analysis":null}\n'
+      exit 0
+      ;;
+    repos/OWNER/REPO/private-vulnerability-reporting|repos/OWNER/REPO/branches/main/protection|repos/OWNER/REPO/rulesets|repos/OWNER/REPO/code-scanning/alerts?state=open\&per_page=1)
+      printf '{"message":"unavailable","status":"403"}\n'
+      exit 1
+      ;;
+  esac
+fi
+exit 1
+`
+	if err := os.WriteFile(fakeGH, []byte(fakeGHScript), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(repoRoot, "scripts", "github-readiness.sh"), "--repo", "OWNER/REPO", "--report-only")
+	cmd.Env = append(os.Environ(), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("github-readiness.sh returned error: %v\n%s", err, output)
+	}
+	contents := string(output)
+	for _, want := range []string{
+		"private vulnerability reporting: unavailable",
+		"default branch protection or rulesets: missing or unavailable",
+		"CodeQL / code-scanning: unavailable",
+	} {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("github-readiness.sh output missing %q:\n%s", want, contents)
+		}
+	}
+	for _, notWant := range []string{
+		"private vulnerability reporting: false",
+		"default branch protection or rulesets: rulesets present",
+		"CodeQL / code-scanning: available",
+	} {
+		if strings.Contains(contents, notWant) {
+			t.Fatalf("github-readiness.sh output contains %q:\n%s", notWant, contents)
 		}
 	}
 }
