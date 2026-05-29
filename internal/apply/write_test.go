@@ -88,6 +88,42 @@ func TestWriteCodexPlanSkipsNoopWrites(t *testing.T) {
 	}
 }
 
+func TestWriteCodexPlanAllowsSymlinkedNoopWithoutBlockingWrites(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	codexHome := filepath.Join(root, "codex-home")
+	outside := filepath.Join(root, "agents-home", "skills", "find-skills")
+	backupDir := filepath.Join(project, ".agent-canon", "backups", "apply-001")
+	if err := os.MkdirAll(filepath.Join(codexHome, "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir codex skills: %v", err)
+	}
+	writeFile(t, filepath.Join(outside, "SKILL.md"), "same\n")
+	if err := os.Symlink(outside, filepath.Join(codexHome, "skills", "find-skills")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	noopTarget := filepath.Join(codexHome, "skills", "find-skills", "SKILL.md")
+	createTarget := filepath.Join(codexHome, "skills", "new-skill", "SKILL.md")
+
+	result, err := applypkg.WriteCodexPlan(applypkg.WriteInput{
+		Plan: applypkg.CodexPlan{Changes: []applypkg.FileChange{
+			{ApplyFileChange: model.ApplyFileChange{Path: noopTarget, Scope: model.ScopeGlobal, Action: model.ApplyActionNoop, BeforeHash: testHash("same\n"), AfterHash: testHash("same\n")}},
+			{ApplyFileChange: model.ApplyFileChange{Path: createTarget, Scope: model.ScopeGlobal, Action: model.ApplyActionCreate, AfterHash: testHash("new\n")}, Contents: []byte("new\n")},
+		}},
+		Project:   project,
+		CodexHome: codexHome,
+		BackupDir: backupDir,
+	})
+	if err != nil {
+		t.Fatalf("WriteCodexPlan returned error: %v", err)
+	}
+
+	assertFileContents(t, filepath.Join(outside, "SKILL.md"), "same\n")
+	assertFileContents(t, createTarget, "new\n")
+	if len(result.Changes) != 2 || !result.Changes[0].Verified || !result.Changes[1].Verified {
+		t.Fatalf("result changes = %#v, want verified noop and create", result.Changes)
+	}
+}
+
 func TestWriteCodexPlanRejectsEscapingSymlinks(t *testing.T) {
 	project := filepath.Join(t.TempDir(), "project")
 	outside := t.TempDir()
