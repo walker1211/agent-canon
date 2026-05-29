@@ -52,6 +52,124 @@ func TestBuildCodexPlanIncludesGlobalFilesWhenEnabled(t *testing.T) {
 	assertChangePath(t, plan, filepath.Join(scan.CodexHome, "config.toml"))
 }
 
+func TestBuildCodexPlanFiltersGlobalChangesByGroup(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+		resource(t, root, model.ScopeGlobal, model.KindSkill, "skill:global-review", filepath.Join("claude-home", "skills", "review", "SKILL.md"), filepath.Join("codex-home", "skills", "review", "SKILL.md"), model.StatusPartial, "# Review\n"),
+	)
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+
+	assertChangePath(t, plan, filepath.Join(scan.CodexHome, "config.toml"))
+	assertNoChangePath(t, plan, filepath.Join(scan.CodexHome, "AGENTS.md"))
+	assertNoChangePath(t, plan, filepath.Join(scan.CodexHome, "skills", "review", "SKILL.md"))
+}
+
+func TestBuildCodexPlanDoesNotInspectExcludedTargets(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+	)
+	if err := os.MkdirAll(filepath.Join(scan.CodexHome, "AGENTS.md"), 0o755); err != nil {
+		t.Fatalf("mkdir excluded target: %v", err)
+	}
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+
+	assertChangePath(t, plan, filepath.Join(scan.CodexHome, "config.toml"))
+	assertNoChangePath(t, plan, filepath.Join(scan.CodexHome, "AGENTS.md"))
+}
+
+func TestBuildCodexPlanSkipsReviewOnlyConfigWhenTargetHasUserConfig(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+	)
+	writeFile(t, filepath.Join(scan.CodexHome, "config.toml"), "model = \"fixture-model\"\n")
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+
+	assertNoChangePath(t, plan, filepath.Join(scan.CodexHome, "config.toml"))
+	if !hasWarning(plan.Warnings, "review-only-config-skipped") {
+		t.Fatalf("warnings missing review-only-config-skipped: %#v", plan.Warnings)
+	}
+}
+
+func TestBuildClaudePlanSkipsReviewOnlySettingsWhenTargetHasUserConfig(t *testing.T) {
+	root := t.TempDir()
+	tests := []struct {
+		name     string
+		settings string
+	}{
+		{name: "regular settings", settings: "{\"permissions\":{}}\n"},
+		{name: "preview marker with user settings", settings: "{\"agentCanonPreview\":{},\"permissions\":{}}\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scan := syntheticScan(t, filepath.Join(root, tt.name),
+				resource(t, filepath.Join(root, tt.name), model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+			)
+			writeFile(t, filepath.Join(scan.ClaudeHome, "settings.json"), tt.settings)
+
+			plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}})
+			if err != nil {
+				t.Fatalf("BuildClaudePlan returned error: %v", err)
+			}
+
+			assertNoClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "settings.json"))
+			if !hasWarning(plan.Warnings, "review-only-config-skipped") {
+				t.Fatalf("warnings missing review-only-config-skipped: %#v", plan.Warnings)
+			}
+		})
+	}
+}
+
+func TestBuildClaudePlanAllowsReviewOnlySettingsWithoutUserConfig(t *testing.T) {
+	root := t.TempDir()
+	tests := []struct {
+		name     string
+		write    bool
+		settings string
+	}{
+		{name: "missing target"},
+		{name: "empty target", write: true, settings: ""},
+		{name: "empty object", write: true, settings: "{}\n"},
+		{name: "generated only", write: true, settings: "{\"agentCanonPreview\":{}}\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scan := syntheticScan(t, filepath.Join(root, tt.name),
+				resource(t, filepath.Join(root, tt.name), model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+			)
+			if tt.write {
+				writeFile(t, filepath.Join(scan.ClaudeHome, "settings.json"), tt.settings)
+			}
+
+			plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}})
+			if err != nil {
+				t.Fatalf("BuildClaudePlan returned error: %v", err)
+			}
+
+			assertClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "settings.json"))
+			if hasWarning(plan.Warnings, "review-only-config-skipped") {
+				t.Fatalf("warnings unexpectedly include review-only-config-skipped: %#v", plan.Warnings)
+			}
+		})
+	}
+}
+
 func TestBuildCodexPlanClassifiesCreateModifyAndNoop(t *testing.T) {
 	root := t.TempDir()
 	scan := syntheticScan(t, root,
@@ -152,6 +270,25 @@ func TestBuildClaudePlanIncludesGlobalFilesWhenEnabled(t *testing.T) {
 	assertClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "settings.json"))
 }
 
+func TestBuildClaudePlanFiltersOnlyThenExclude(t *testing.T) {
+	root := t.TempDir()
+	scan := syntheticScan(t, root,
+		resource(t, root, model.ScopeGlobal, model.KindInstruction, "instruction:global", filepath.Join("claude-home", "CLAUDE.md"), filepath.Join("codex-home", "AGENTS.md"), model.StatusCompatible, "# Global\n"),
+		resource(t, root, model.ScopeGlobal, model.KindSkill, "skill:global-keep", filepath.Join("claude-home", "skills", "keep", "SKILL.md"), filepath.Join("codex-home", "skills", "keep", "SKILL.md"), model.StatusPartial, "# Keep\n"),
+		resource(t, root, model.ScopeGlobal, model.KindSkill, "skill:global-drop", filepath.Join("claude-home", "skills", "drop", "SKILL.md"), filepath.Join("codex-home", "skills", "drop", "SKILL.md"), model.StatusPartial, "# Drop\n"),
+	)
+
+	plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"skills"}, Exclude: []string{filepath.Join("skills", "drop", "SKILL.md")}}})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan returned error: %v", err)
+	}
+
+	assertClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "skills", "keep", "SKILL.md"))
+	assertNoClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "skills", "drop", "SKILL.md"))
+	assertNoClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "CLAUDE.md"))
+	assertNoClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "settings.json"))
+}
+
 func TestBuildClaudePlanClassifiesCreateModifyAndNoop(t *testing.T) {
 	root := t.TempDir()
 	scan := syntheticScan(t, root,
@@ -177,7 +314,7 @@ func TestBuildClaudePlanClassifiesCreateModifyAndNoop(t *testing.T) {
 		t.Fatalf("same target change = %#v, want noop with matching hashes", claude.ApplyFileChange)
 	}
 
-	writeFile(t, claude.Path, "old\n")
+	writeFile(t, claude.Path, "{}\n")
 	modified, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
 	if err != nil {
 		t.Fatalf("BuildClaudePlan modify returned error: %v", err)

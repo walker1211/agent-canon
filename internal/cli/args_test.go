@@ -364,6 +364,23 @@ func TestParseAcceptsValidApplyTargetsAndFlags(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsRepeatableApplyFilters(t *testing.T) {
+	root := t.TempDir()
+	opts, err := Parse([]string{"apply", "codex", "--global", "--only", "config", "--only", "skills/sample/SKILL.md", "--exclude", "skills/experimental/SKILL.md", "--project", root}, root, root)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if opts.Command != "apply" || opts.ApplyTarget != "codex" || !opts.Global {
+		t.Fatalf("parsed command = %#v, want global apply codex", opts)
+	}
+	if got, want := strings.Join(opts.ApplyOnly, ","), "config,skills/sample/SKILL.md"; got != want {
+		t.Fatalf("ApplyOnly = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(opts.ApplyExclude, ","), "skills/experimental/SKILL.md"; got != want {
+		t.Fatalf("ApplyExclude = %q, want %q", got, want)
+	}
+}
+
 func TestParseRejectsInvalidApplyForms(t *testing.T) {
 	root := t.TempDir()
 	for _, tc := range []struct {
@@ -432,6 +449,8 @@ func TestParseRejectsInvalidImportForms(t *testing.T) {
 		{name: "unsupported target", args: []string{"import", "other", "--project", root}},
 		{name: "codex extra arg", args: []string{"import", "codex", "extra", "--project", root}},
 		{name: "codex out", args: []string{"import", "codex", "--out", "report.json", "--project", root}},
+		{name: "codex only", args: []string{"import", "codex", "--only", "config", "--project", root}},
+		{name: "codex exclude", args: []string{"import", "codex", "--exclude", "config", "--project", root}},
 		{name: "codex dry run", args: []string{"import", "codex", "--dry-run", "--project", root}},
 		{name: "codex yes", args: []string{"import", "codex", "--yes", "--project", root}},
 		{name: "codex global", args: []string{"import", "codex", "--global", "--project", root}},
@@ -496,6 +515,8 @@ func TestParseRejectsInvalidVerifyForms(t *testing.T) {
 		{name: "unsupported target", args: []string{"verify", "other", "--project", root}},
 		{name: "extra arg", args: []string{"verify", "codex", "extra", "--project", root}},
 		{name: "out", args: []string{"verify", "codex", "--out", "preview", "--project", root}},
+		{name: "only", args: []string{"verify", "codex", "--only", "config", "--project", root}},
+		{name: "exclude", args: []string{"verify", "codex", "--exclude", "config", "--project", root}},
 		{name: "dry run", args: []string{"verify", "codex", "--dry-run", "--project", root}},
 		{name: "yes", args: []string{"verify", "codex", "--yes", "--project", root}},
 		{name: "global", args: []string{"verify", "codex", "--global", "--project", root}},

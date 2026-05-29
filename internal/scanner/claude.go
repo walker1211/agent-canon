@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
@@ -191,11 +192,15 @@ func scanEntries(root string, kind model.ResourceKind, scope model.Scope, idPref
 	resources := make([]model.Resource, 0, len(entries))
 	for _, entry := range entries {
 		path, err := absClean(entry)
-		if err != nil {
+		if err != nil || shouldSkipEntry(path) {
 			continue
 		}
 		name := slug(path)
 		resources = append(resources, newResource(idPrefix+name, kind, scope, path, targetHint(name), model.StatusPartial, strategy))
 	}
 	return resources
+}
+
+func shouldSkipEntry(path string) bool {
+	return strings.HasPrefix(filepath.Base(path), ".")
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const helpText = `agent-canon is a migration inventory, import, plan, sync, conflict, preview export, compile, apply, verify, workspace lifecycle, and rollback tool.
@@ -70,6 +71,8 @@ Flags:
   --dry-run              apply claude/codex/rollback: show planned changes without writing
   --yes                  apply claude/codex/rollback: skip interactive confirmation
   --global               apply claude/codex/rollback: allow writes under Claude or Codex home
+  --only string         apply claude/codex: include only a matching path or group; repeatable
+  --exclude string      apply claude/codex: exclude a matching path or group; repeatable
 `
 
 type Options struct {
@@ -83,6 +86,8 @@ type Options struct {
 	ResolveDecision string
 	ManualValue     string
 	ApplyTarget     string
+	ApplyOnly       []string
+	ApplyExclude    []string
 	RollbackID      string
 	VerifyTarget    string
 	DiffTarget      string
@@ -98,6 +103,24 @@ type Options struct {
 	Yes             bool
 	Global          bool
 	Warnings        []string
+}
+
+type stringList []string
+
+func (s *stringList) String() string {
+	if s == nil {
+		return ""
+	}
+	return strings.Join(*s, ",")
+}
+
+func (s *stringList) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("empty selector")
+	}
+	*s = append(*s, value)
+	return nil
 }
 
 type usageError struct {
@@ -255,6 +278,10 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.BoolVar(&opts.DryRun, "dry-run", opts.DryRun, "show planned apply or rollback changes without writing")
 	flags.BoolVar(&opts.Yes, "yes", opts.Yes, "skip apply or rollback confirmation")
 	flags.BoolVar(&opts.Global, "global", opts.Global, "allow apply or rollback writes under --codex-home")
+	var applyOnly stringList
+	var applyExclude stringList
+	flags.Var(&applyOnly, "only", "apply only matching path or group; repeatable")
+	flags.Var(&applyExclude, "exclude", "exclude matching path or group from apply; repeatable")
 	resolveOurs := false
 	resolveTheirs := false
 	resolveAcceptSuggestion := false
@@ -268,6 +295,8 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	if flags.NArg() > 0 {
 		return Options{}, usageError{message: fmt.Sprintf("unexpected argument %q", flags.Arg(0)), code: 1}
 	}
+	opts.ApplyOnly = append([]string(nil), applyOnly...)
+	opts.ApplyExclude = append([]string(nil), applyExclude...)
 
 	if opts.From != "claude" || opts.To != "codex" {
 		return Options{}, usageError{message: "agent-canon supports only claude -> codex", code: 1}
@@ -389,12 +418,25 @@ func flagWasSet(flags *flag.FlagSet, name string) bool {
 }
 
 func validateApplyFlags(command string, flags *flag.FlagSet) error {
-	if command == "apply" || command == "rollback" {
+	if command == "apply" {
+		return nil
+	}
+	if command == "rollback" {
+		for _, name := range []string{"only", "exclude"} {
+			if flagWasSet(flags, name) {
+				return usageError{message: fmt.Sprintf("--%s is supported only for apply claude/codex", name), code: 1}
+			}
+		}
 		return nil
 	}
 	for _, name := range []string{"dry-run", "yes", "global"} {
 		if flagWasSet(flags, name) {
-			return usageError{message: fmt.Sprintf("--%s is supported only for apply codex or rollback", name), code: 1}
+			return usageError{message: fmt.Sprintf("--%s is supported only for apply claude/codex or rollback", name), code: 1}
+		}
+	}
+	for _, name := range []string{"only", "exclude"} {
+		if flagWasSet(flags, name) {
+			return usageError{message: fmt.Sprintf("--%s is supported only for apply claude/codex", name), code: 1}
 		}
 	}
 	return nil

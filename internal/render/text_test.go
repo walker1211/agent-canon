@@ -169,6 +169,7 @@ func TestApplyTextDryRunWithGlobalSkippedSuggestsGlobalDryRunFirst(t *testing.T)
 		Target:   "codex",
 		Project:  "/repo",
 		Mode:     "dry-run",
+		Filters:  render.ApplyFilterTextReport{Only: []string{"config"}},
 		Changes:  []model.ApplyFileChange{{Path: "/repo/AGENTS.md", Scope: model.ScopeProject, Action: model.ApplyActionModify}},
 		Warnings: []model.Warning{{Code: "global-skipped", Message: "global Codex targets were skipped"}},
 	}
@@ -177,9 +178,70 @@ func TestApplyTextDryRunWithGlobalSkippedSuggestsGlobalDryRunFirst(t *testing.T)
 		t.Fatalf("ApplyText returned error: %v", err)
 	}
 	text := out.String()
-	want := "- To inspect skipped global home changes first, run `agent-canon apply codex --global --dry-run`."
+	want := "- To inspect skipped global home changes first, run `agent-canon apply codex --global --dry-run --only config`."
 	if !strings.Contains(text, want) {
 		t.Fatalf("ApplyText dry-run output missing %q:\n%s", want, text)
+	}
+}
+
+func TestApplyTextDryRunWithNoChangesAvoidsWriteCommand(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:   "codex",
+		Project:  "/repo",
+		Mode:     "dry-run",
+		Warnings: []model.Warning{{Code: "review-only-config-skipped", Message: "config target skipped"}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"- No apply command is needed because there are no changed files.",
+		"- Review skipped config warnings and migrate those settings manually.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ApplyText output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "--yes") {
+		t.Fatalf("ApplyText suggested write command despite no changes:\n%s", text)
+	}
+}
+
+func TestApplyTextPrintsFiltersAndGlobalGroups(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:        "codex",
+		Project:       "/repo",
+		Mode:          "dry-run",
+		IncludeGlobal: true,
+		Filters:       render.ApplyFilterTextReport{Only: []string{"config"}, Exclude: []string{"tokens/" + fixtureSecret + "/SKILL.md"}},
+		GlobalGroups: []render.ApplyChangeGroupTextReport{{
+			Name:    "config",
+			Changes: []model.ApplyFileChange{{Path: "/home/.codex/config.toml", Scope: model.ScopeGlobal, Action: model.ApplyActionModify}},
+		}},
+		Changes: []model.ApplyFileChange{{Path: "/home/.codex/config.toml", Scope: model.ScopeGlobal, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"Filters: only=config exclude=tokens/" + security.RedactedValue + "/SKILL.md",
+		"Global groups:",
+		"- config: 1",
+		"  - /home/.codex/config.toml",
+		"- Run `agent-canon apply codex --global --yes --only config --exclude 'tokens/" + security.RedactedValue + "/SKILL.md'` only after dry-run looks correct.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ApplyText output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, fixtureSecret) {
+		t.Fatalf("ApplyText leaked fixture secret:\n%s", text)
 	}
 }
 

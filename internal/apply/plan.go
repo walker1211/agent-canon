@@ -1,11 +1,14 @@
 package apply
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/zhangyoujun/agent-canon/internal/exporter"
 	"github.com/zhangyoujun/agent-canon/internal/model"
@@ -15,6 +18,7 @@ type CodexPlanInput struct {
 	Scan          model.ScanReport
 	Plan          model.PlanReport
 	IncludeGlobal bool
+	Filters       ApplyFilters
 }
 
 type CodexPlan struct {
@@ -26,6 +30,7 @@ type ClaudePlanInput struct {
 	Scan          model.ScanReport
 	Plan          model.PlanReport
 	IncludeGlobal bool
+	Filters       ApplyFilters
 }
 
 type ClaudePlan struct {
@@ -43,24 +48,27 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 	var out CodexPlan
 	out.Warnings = append(out.Warnings, input.Scan.Warnings...)
 	out.Warnings = append(out.Warnings, input.Plan.Warnings...)
+	roots := FilterRoots{Project: input.Scan.Project, Home: input.Scan.CodexHome}
 
 	projectScan := scanForScope(input.Scan, model.ScopeProject)
 	if len(projectScan.Resources) > 0 {
-		changes, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildCodexPreview, targetPath)
+		changes, warnings, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildCodexPreview, targetPath, input.Filters, roots)
 		if err != nil {
 			return CodexPlan{}, err
 		}
 		out.Changes = append(out.Changes, changes...)
+		out.Warnings = append(out.Warnings, warnings...)
 	}
 
 	globalScan := scanForScope(input.Scan, model.ScopeGlobal)
 	if len(globalScan.Resources) > 0 {
 		if input.IncludeGlobal {
-			changes, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.CodexHome, model.ScopeGlobal, exporter.BuildCodexPreview, targetPath)
+			changes, warnings, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.CodexHome, model.ScopeGlobal, exporter.BuildCodexPreview, targetPath, input.Filters, roots)
 			if err != nil {
 				return CodexPlan{}, err
 			}
 			out.Changes = append(out.Changes, changes...)
+			out.Warnings = append(out.Warnings, warnings...)
 		} else {
 			out.Warnings = append(out.Warnings, model.Warning{Code: "global-skipped", Message: "global Codex targets were skipped; rerun with --global to include --codex-home writes"})
 		}
@@ -76,24 +84,27 @@ func BuildClaudePlan(input ClaudePlanInput) (ClaudePlan, error) {
 	var out ClaudePlan
 	out.Warnings = append(out.Warnings, input.Scan.Warnings...)
 	out.Warnings = append(out.Warnings, input.Plan.Warnings...)
+	roots := FilterRoots{Project: input.Scan.Project, Home: input.Scan.ClaudeHome}
 
 	projectScan := scanForScope(input.Scan, model.ScopeProject)
 	if len(projectScan.Resources) > 0 {
-		changes, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildClaudePreview, claudeTargetPath)
+		changes, warnings, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildClaudePreview, claudeTargetPath, input.Filters, roots)
 		if err != nil {
 			return ClaudePlan{}, err
 		}
 		out.Changes = append(out.Changes, changes...)
+		out.Warnings = append(out.Warnings, warnings...)
 	}
 
 	globalScan := scanForScope(input.Scan, model.ScopeGlobal)
 	if len(globalScan.Resources) > 0 {
 		if input.IncludeGlobal {
-			changes, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.ClaudeHome, model.ScopeGlobal, exporter.BuildClaudePreview, claudeTargetPath)
+			changes, warnings, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.ClaudeHome, model.ScopeGlobal, exporter.BuildClaudePreview, claudeTargetPath, input.Filters, roots)
 			if err != nil {
 				return ClaudePlan{}, err
 			}
 			out.Changes = append(out.Changes, changes...)
+			out.Warnings = append(out.Warnings, warnings...)
 		} else {
 			out.Warnings = append(out.Warnings, model.Warning{Code: "global-skipped", Message: "global Claude targets were skipped; rerun with --global to include --claude-home writes"})
 		}
@@ -108,24 +119,114 @@ func BuildClaudePlan(input ClaudePlanInput) (ClaudePlan, error) {
 type previewBuilder func(model.ScanReport, model.PlanReport) (exporter.CodexPreview, error)
 type targetMapper func(string, model.Scope, string) string
 
-func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, scope model.Scope, buildPreview previewBuilder, mapTarget targetMapper) ([]FileChange, error) {
+func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, scope model.Scope, buildPreview previewBuilder, mapTarget targetMapper, filters ApplyFilters, roots FilterRoots) ([]FileChange, []model.Warning, error) {
 	preview, err := buildPreview(scan, plan)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	changes := make([]FileChange, 0, len(preview.Files))
+	candidates := make([]FileChange, 0, len(preview.Files))
 	for _, file := range preview.Files {
 		if file.Path == "migration-report.md" {
 			continue
 		}
-		path := mapTarget(root, scope, file.Path)
-		change, err := buildFileChange(path, scope, file.Path, file.Contents)
+		candidates = append(candidates, FileChange{
+			ApplyFileChange: model.ApplyFileChange{
+				Path:  mapTarget(root, scope, file.Path),
+				Scope: scope,
+			},
+			PreviewPath: file.Path,
+			Contents:    file.Contents,
+		})
+	}
+
+	candidates = FilterChanges(candidates, filters, roots)
+	changes := make([]FileChange, 0, len(candidates))
+	var warnings []model.Warning
+	for _, candidate := range candidates {
+		skip, warning, err := shouldSkipReviewOnlyConfigOverwrite(candidate)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if skip {
+			warnings = append(warnings, warning)
+			continue
+		}
+		change, err := buildFileChange(candidate.Path, candidate.Scope, candidate.PreviewPath, candidate.Contents)
+		if err != nil {
+			return nil, nil, err
 		}
 		changes = append(changes, change)
 	}
-	return changes, nil
+	return changes, warnings, nil
+}
+
+func shouldSkipReviewOnlyConfigOverwrite(change FileChange) (bool, model.Warning, error) {
+	if !isReviewOnlyConfigPreview(change.PreviewPath, change.Contents) {
+		return false, model.Warning{}, nil
+	}
+	current, err := os.ReadFile(change.Path)
+	if os.IsNotExist(err) {
+		return false, model.Warning{}, nil
+	}
+	if err != nil {
+		return false, model.Warning{}, fmt.Errorf("read apply target %s: %w", change.Path, err)
+	}
+	if !hasUserConfigContent(change.PreviewPath, current) {
+		return false, model.Warning{}, nil
+	}
+	warning := model.Warning{
+		Code:    "review-only-config-skipped",
+		Message: fmt.Sprintf("%s already contains user configuration; review generated %s manually instead of applying the review-only preview", change.Path, change.PreviewPath),
+	}
+	return true, warning, nil
+}
+
+func isReviewOnlyConfigPreview(previewPath string, contents []byte) bool {
+	switch filepath.ToSlash(previewPath) {
+	case ".codex/config.toml":
+		return bytes.Contains(contents, []byte("# Codex configuration preview")) && !hasTOMLDataLines(contents)
+	case ".claude/settings.json":
+		return bytes.Contains(contents, []byte(`"agentCanonPreview"`)) && bytes.Contains(contents, []byte(`"noRunnableEdits": true`))
+	default:
+		return false
+	}
+}
+
+func hasUserConfigContent(previewPath string, contents []byte) bool {
+	switch filepath.ToSlash(previewPath) {
+	case ".codex/config.toml":
+		return hasTOMLDataLines(contents)
+	case ".claude/settings.json":
+		return hasClaudeSettingsUserConfig(contents)
+	default:
+		return false
+	}
+}
+
+func hasClaudeSettingsUserConfig(contents []byte) bool {
+	trimmed := strings.TrimSpace(string(contents))
+	if trimmed == "" {
+		return false
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &object); err != nil {
+		return true
+	}
+	if len(object) == 0 {
+		return false
+	}
+	_, onlyPreview := object["agentCanonPreview"]
+	return len(object) != 1 || !onlyPreview
+}
+
+func hasTOMLDataLines(contents []byte) bool {
+	for _, line := range strings.Split(string(contents), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			return true
+		}
+	}
+	return false
 }
 
 func targetPath(root string, scope model.Scope, previewPath string) string {

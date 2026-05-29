@@ -340,6 +340,9 @@ func TestImportClaudeWritesOnlyWorkspaceBaselineAndReport(t *testing.T) {
 	}
 
 	allowed := map[string]bool{
+		snapshotDirKey(filepath.Join("project", ".agent-canon")):                  true,
+		snapshotDirKey(filepath.Join("project", ".agent-canon", "base")):          true,
+		snapshotDirKey(filepath.Join("project", ".agent-canon", "imports")):       true,
 		filepath.Join("project", ".agent-canon", "manifest.json"):                 true,
 		filepath.Join("project", ".agent-canon", "base", "claude.snapshot.json"):  true,
 		filepath.Join("project", ".agent-canon", "imports", "claude.import.json"): true,
@@ -601,6 +604,30 @@ func TestApplyCodexDryRunAndYesRoundTrip(t *testing.T) {
 	if !strings.Contains(baseCodex, filepath.Join(fixture.project, "AGENTS.md")) {
 		t.Fatalf("base codex snapshot missing applied project target: %q", baseCodex)
 	}
+}
+
+func TestApplyCodexGlobalDryRunOnlyConfigDoesNotWriteHome(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	runSyncCommand(t, fixture)
+	before := snapshotFiles(t, fixture.root)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--global", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("dry-run exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{"Filters: only=config exclude=none", filepath.Join(fixture.project, ".codex", "config.toml"), "review-only-config-skipped"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, text)
+		}
+	}
+	for _, notWant := range []string{filepath.Join(fixture.codexHome, "AGENTS.md"), filepath.Join(fixture.codexHome, "skills")} {
+		if strings.Contains(text, notWant) {
+			t.Fatalf("stdout contains filtered global path %q:\n%s", notWant, text)
+		}
+	}
+	assertFilesUnchanged(t, fixture.root, before)
 }
 
 func TestApplyCodexBacksUpExistingProjectTarget(t *testing.T) {
@@ -949,6 +976,8 @@ func onlyFileInDir(t *testing.T, root string) string {
 	return files[0]
 }
 
+const snapshotDirectoryValue = "<DIR>"
+
 func snapshotFiles(t *testing.T, root string) map[string]string {
 	t.Helper()
 	files := make(map[string]string)
@@ -956,12 +985,15 @@ func snapshotFiles(t *testing.T, root string) map[string]string {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() {
-			return nil
-		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
+		}
+		if entry.IsDir() {
+			if rel != "." {
+				files[snapshotDirKey(rel)] = snapshotDirectoryValue
+			}
+			return nil
 		}
 		contents, err := os.ReadFile(path)
 		if err != nil {
@@ -975,11 +1007,15 @@ func snapshotFiles(t *testing.T, root string) map[string]string {
 	return files
 }
 
+func snapshotDirKey(rel string) string {
+	return rel + string(os.PathSeparator)
+}
+
 func assertFilesUnchanged(t *testing.T, root string, before map[string]string) {
 	t.Helper()
 	after := snapshotFiles(t, root)
 	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("fixture files changed under %s\nbefore: %#v\nafter: %#v", root, before, after)
+		t.Fatalf("fixture tree changed under %s\nbefore: %#v\nafter: %#v", root, before, after)
 	}
 }
 

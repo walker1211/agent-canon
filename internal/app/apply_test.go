@@ -94,6 +94,62 @@ func TestRunApplyCodexGlobalDryRunWritesNothingAndExplainsRealHomeTargets(t *tes
 	}
 }
 
+func TestRunApplyCodexGlobalDryRunOnlyConfigFiltersOutputAndWritesNothing(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	codexHomeBefore := directorySnapshot(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--global", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{
+		"Filters: only=config exclude=none",
+		filepath.Join(fixture.project, ".codex", "config.toml"),
+		"Global groups:",
+		"- config: 0",
+		"review-only-config-skipped",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, text)
+		}
+	}
+	for _, notWant := range []string{
+		filepath.Join(fixture.codexHome, "AGENTS.md"),
+		filepath.Join(fixture.codexHome, "skills"),
+	} {
+		if strings.Contains(text, notWant) {
+			t.Fatalf("stdout contains filtered path %q:\n%s", notWant, text)
+		}
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("filtered global dry-run modified Codex home")
+	}
+}
+
+func TestRunApplyCodexGlobalYesOnlyConfigSkipsExistingUserConfig(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	configPath := filepath.Join(fixture.codexHome, "config.toml")
+	beforeConfig := readFileText(t, configPath)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--global", "--yes", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if got := readFileText(t, configPath); got != beforeConfig {
+		t.Fatalf("config was overwritten; got %q want %q", got, beforeConfig)
+	}
+	for _, want := range []string{filepath.Join(fixture.project, ".codex", "config.toml"), "review-only-config-skipped", "selective-apply-baseline-not-refreshed"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestRunApplyCodexConfirmationNoRejectsWithoutWrites(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	runInitialSync(t, fixture)
@@ -258,6 +314,38 @@ func TestRunApplyClaudeYesWritesProjectFilesAndSkipsGlobalByDefault(t *testing.T
 	}
 }
 
+func TestRunApplyCodexSelectiveApplyDoesNotRefreshCleanBaseline(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	workspaceRoot := filepath.Join(fixture.project, ".agent-canon")
+	writeFile(t, filepath.Join(fixture.project, "CLAUDE.md"), "# Project Instructions\n\nChanged but not selected.\n")
+	runInitialSync(t, fixture)
+	beforeState := readSyncState(t, filepath.Join(workspaceRoot, "sync-state.json"))
+	if !hasSyncDiff(beforeState, "instruction:project-claude-md") {
+		t.Fatalf("setup sync state missing unselected instruction diff: %#v", beforeState.Summary)
+	}
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--yes", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	assertFileExists(t, filepath.Join(fixture.project, ".codex", "config.toml"))
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
+	afterState := readSyncState(t, filepath.Join(workspaceRoot, "sync-state.json"))
+	if afterState.Summary.Diffs == 0 || !hasSyncDiff(afterState, "instruction:project-claude-md") {
+		t.Fatalf("selective apply swallowed unselected diff: %#v", afterState.Summary)
+	}
+	if !strings.Contains(stdout.String(), "selective-apply-baseline-not-refreshed") {
+		t.Fatalf("stdout missing selective baseline warning: %q", stdout.String())
+	}
+	manifest := readOnlyRollbackManifest(t, filepath.Join(workspaceRoot, "rollback"))
+	if !hasWarning(manifest.Warnings, "selective-apply-baseline-not-refreshed") {
+		t.Fatalf("rollback manifest missing selective baseline warning: %#v", manifest.Warnings)
+	}
+}
+
 func TestRunApplyClaudeYesAdvancesBaseStateAndWritesRollbackManifest(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	runInitialSync(t, fixture)
@@ -404,4 +492,13 @@ func equalStringMaps(left map[string]string, right map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func hasSyncDiff(state model.SyncStateReport, resourceID string) bool {
+	for _, diff := range state.Diffs {
+		if diff.ResourceID == resourceID {
+			return true
+		}
+	}
+	return false
 }

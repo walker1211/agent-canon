@@ -53,17 +53,20 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 		return mapScanError(err)
 	}
 	planReport := planner.Build(scanReport)
-	codexPlan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global})
+	filters := applypkg.ApplyFilters{Only: opts.ApplyOnly, Exclude: opts.ApplyExclude}
+	codexPlan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global, Filters: filters})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
 	plannedChanges := applyPlanChanges(codexPlan.Changes)
+	filterReport := applyFilterReport(filters)
+	globalGroups := applyGroupReports(applypkg.GroupGlobalChanges(codexPlan.Changes))
 	if opts.DryRun {
-		return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: codexPlan.Warnings})
+		return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: codexPlan.Warnings})
 	}
 
 	if !opts.Yes {
-		if err := renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: codexPlan.Warnings}); err != nil {
+		if err := renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: codexPlan.Warnings}); err != nil {
 			return err
 		}
 		confirmed, err := confirmApply(stdin, stdout)
@@ -84,7 +87,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	baseSnapshots, err := refreshBaselineAfterFilesystemChange(opts, layout, codexPlan.Warnings)
+	baseSnapshots, applyWarnings, err := refreshBaselineAfterApply(opts, layout, filters, codexPlan.Warnings)
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -96,12 +99,12 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 		BackupDir:     backupDir,
 		Changes:       result.Changes,
 		BaseSnapshots: baseSnapshots,
-		Warnings:      codexPlan.Warnings,
+		Warnings:      applyWarnings,
 	})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: codexPlan.Warnings})
+	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: applyWarnings})
 }
 
 func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
@@ -128,17 +131,20 @@ func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 		return mapScanError(err)
 	}
 	planReport := planner.Build(scanReport)
-	claudePlan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global})
+	filters := applypkg.ApplyFilters{Only: opts.ApplyOnly, Exclude: opts.ApplyExclude}
+	claudePlan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global, Filters: filters})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
 	plannedChanges := applyPlanChanges(claudePlan.Changes)
+	filterReport := applyFilterReport(filters)
+	globalGroups := applyGroupReports(applypkg.GroupGlobalChanges(claudePlan.Changes))
 	if opts.DryRun {
-		return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: claudePlan.Warnings})
+		return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: claudePlan.Warnings})
 	}
 
 	if !opts.Yes {
-		if err := renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Changes: plannedChanges, Warnings: claudePlan.Warnings}); err != nil {
+		if err := renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: claudePlan.Warnings}); err != nil {
 			return err
 		}
 		confirmed, err := confirmApply(stdin, stdout)
@@ -159,7 +165,7 @@ func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	baseSnapshots, err := refreshBaselineAfterFilesystemChange(opts, layout, claudePlan.Warnings)
+	baseSnapshots, applyWarnings, err := refreshBaselineAfterApply(opts, layout, filters, claudePlan.Warnings)
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -171,12 +177,26 @@ func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 		BackupDir:     backupDir,
 		Changes:       result.Changes,
 		BaseSnapshots: baseSnapshots,
-		Warnings:      claudePlan.Warnings,
+		Warnings:      applyWarnings,
 	})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: claudePlan.Warnings})
+	return renderApply(stdout, render.ApplyTextReport{Target: "claude", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: applyWarnings})
+}
+
+func refreshBaselineAfterApply(opts cli.Options, layout workspace.Layout, filters applypkg.ApplyFilters, applyWarnings []model.Warning) (map[string]string, []model.Warning, error) {
+	warnings := append([]model.Warning{}, applyWarnings...)
+	if hasApplyFilters(filters) {
+		warnings = appendWarnings(warnings, model.Warning{Code: "selective-apply-baseline-not-refreshed", Message: "selective apply filters were used; sync baseline was not refreshed automatically; run \"agent-canon sync claude codex\" to review remaining diffs"})
+		return baseSnapshotPaths(layout), warnings, nil
+	}
+	baseSnapshots, err := refreshBaselineAfterFilesystemChange(opts, layout, warnings)
+	return baseSnapshots, warnings, err
+}
+
+func hasApplyFilters(filters applypkg.ApplyFilters) bool {
+	return len(filters.Only) > 0 || len(filters.Exclude) > 0
 }
 
 func refreshBaselineAfterFilesystemChange(opts cli.Options, layout workspace.Layout, applyWarnings []model.Warning) (map[string]string, error) {
@@ -250,6 +270,18 @@ func openConflictCount(state model.SyncStateReport) int {
 		}
 	}
 	return open
+}
+
+func applyFilterReport(filters applypkg.ApplyFilters) render.ApplyFilterTextReport {
+	return render.ApplyFilterTextReport{Only: append([]string(nil), filters.Only...), Exclude: append([]string(nil), filters.Exclude...)}
+}
+
+func applyGroupReports(groups []applypkg.ChangeGroupSummary) []render.ApplyChangeGroupTextReport {
+	out := make([]render.ApplyChangeGroupTextReport, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, render.ApplyChangeGroupTextReport{Name: group.Name, Changes: group.Changes})
+	}
+	return out
 }
 
 func applyPlanChanges(changes []applypkg.FileChange) []model.ApplyFileChange {

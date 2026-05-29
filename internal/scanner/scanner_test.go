@@ -135,6 +135,35 @@ func TestScanWarnsWhenCodexTargetsExistForPartialResources(t *testing.T) {
 	}
 }
 
+func TestScanIgnoresHiddenSystemEntries(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+
+	writeFile(t, filepath.Join(claudeHome, "agents", ".DS_Store"), "system metadata")
+	writeFile(t, filepath.Join(project, ".claude", "agents", ".DS_Store"), "system metadata")
+	writeFile(t, filepath.Join(claudeHome, "commands", ".DS_Store"), "system metadata")
+	writeFile(t, filepath.Join(claudeHome, "agents", "reviewer.md"), "reviewer")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("create codex home: %v", err)
+	}
+
+	report, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	if !hasResource(report.Resources, "agent:global-reviewer") {
+		t.Fatalf("scan missed regular agent: %#v", report.Resources)
+	}
+	for _, resource := range report.Resources {
+		if strings.Contains(resource.SourcePath, ".DS_Store") || strings.HasSuffix(resource.TargetPathHint, string(filepath.Separator)+".toml") {
+			t.Fatalf("hidden system entry was scanned: %#v", resource)
+		}
+	}
+}
+
 func TestScanPartialResourcesUseTargetHintsAndStableStrategies(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")

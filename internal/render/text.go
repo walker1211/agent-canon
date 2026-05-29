@@ -492,8 +492,20 @@ type ApplyTextReport struct {
 	IncludeGlobal bool
 	BackupDir     string
 	ManifestPath  string
+	Filters       ApplyFilterTextReport
+	GlobalGroups  []ApplyChangeGroupTextReport
 	Changes       []model.ApplyFileChange
 	Warnings      []model.Warning
+}
+
+type ApplyFilterTextReport struct {
+	Only    []string
+	Exclude []string
+}
+
+type ApplyChangeGroupTextReport struct {
+	Name    string
+	Changes []model.ApplyFileChange
 }
 
 func ApplyText(writer io.Writer, report ApplyTextReport) error {
@@ -507,6 +519,11 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 	create, modify, noop := applyActionCounts(report.Changes)
 	if err := out.line("Summary: create=%d modify=%d noop=%d warnings=%d", create, modify, noop, len(report.Warnings)); err != nil {
 		return err
+	}
+	if len(report.Filters.Only) > 0 || len(report.Filters.Exclude) > 0 {
+		if err := out.line("Filters: only=%s exclude=%s", selectorList(report.Filters.Only), selectorList(report.Filters.Exclude)); err != nil {
+			return err
+		}
 	}
 	if report.Mode == "dry-run" {
 		if err := out.line("Dry-run: no files were written."); err != nil {
@@ -551,6 +568,25 @@ func ApplyText(writer io.Writer, report ApplyTextReport) error {
 			return err
 		}
 	}
+	if len(report.GlobalGroups) > 0 {
+		if err := out.blank(); err != nil {
+			return err
+		}
+		if err := out.line("Global groups:"); err != nil {
+			return err
+		}
+		for _, group := range report.GlobalGroups {
+			if err := out.line("- %s: %d", group.Name, len(group.Changes)); err != nil {
+				return err
+			}
+			for _, change := range group.Changes {
+				path, _ := security.RedactContent(change.Path)
+				if err := out.line("  - %s", path); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	if report.Mode == "dry-run" {
 		if err := writeApplyDryRunNextSteps(out, report); err != nil {
 			return err
@@ -581,22 +617,73 @@ func writeApplyDryRunNextSteps(out textWriter, report ApplyTextReport) error {
 	if err := out.line("Next steps:"); err != nil {
 		return err
 	}
+	if len(report.Changes) == 0 {
+		if err := out.line("- No apply command is needed because there are no changed files."); err != nil {
+			return err
+		}
+		if hasWarningCode(report.Warnings, "review-only-config-skipped") {
+			if err := out.line("- Review skipped config warnings and migrate those settings manually."); err != nil {
+				return err
+			}
+		}
+		return writeGlobalSkippedNextStep(out, report)
+	}
 	if err := out.line("- Review Changed files before any write."); err != nil {
 		return err
 	}
-	command := fmt.Sprintf("agent-canon apply %s --yes", report.Target)
-	if report.IncludeGlobal {
-		command = fmt.Sprintf("agent-canon apply %s --global --yes", report.Target)
-	}
-	if err := out.line("- Run `%s` only after dry-run looks correct.", command); err != nil {
+	if err := out.line("- Run `%s` only after dry-run looks correct.", applyConfirmCommand(report)); err != nil {
 		return err
 	}
-	if hasWarningCode(report.Warnings, "global-skipped") {
-		if err := out.line("- To inspect skipped global home changes first, run `agent-canon apply %s --global --dry-run`.", report.Target); err != nil {
-			return err
-		}
+	return writeGlobalSkippedNextStep(out, report)
+}
+
+func writeGlobalSkippedNextStep(out textWriter, report ApplyTextReport) error {
+	if !hasWarningCode(report.Warnings, "global-skipped") {
+		return nil
 	}
-	return nil
+	globalReport := report
+	globalReport.IncludeGlobal = true
+	return out.line("- To inspect skipped global home changes first, run `%s`.", applyDryRunCommand(globalReport))
+}
+
+func applyConfirmCommand(report ApplyTextReport) string {
+	args := []string{"agent-canon", "apply", report.Target}
+	if report.IncludeGlobal {
+		args = append(args, "--global")
+	}
+	args = append(args, "--yes")
+	args = appendApplyFilterArgs(args, report.Filters)
+	return strings.Join(args, " ")
+}
+
+func applyDryRunCommand(report ApplyTextReport) string {
+	args := []string{"agent-canon", "apply", report.Target}
+	if report.IncludeGlobal {
+		args = append(args, "--global")
+	}
+	args = append(args, "--dry-run")
+	args = appendApplyFilterArgs(args, report.Filters)
+	return strings.Join(args, " ")
+}
+
+func appendApplyFilterArgs(args []string, filters ApplyFilterTextReport) []string {
+	for _, value := range filters.Only {
+		args = append(args, "--only", shellArg(redactedSelector(value)))
+	}
+	for _, value := range filters.Exclude {
+		args = append(args, "--exclude", shellArg(redactedSelector(value)))
+	}
+	return args
+}
+
+func shellArg(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.Trim(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-~") == "" {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func hasWarningCode(warnings []model.Warning, code string) bool {
@@ -606,6 +693,22 @@ func hasWarningCode(warnings []model.Warning, code string) bool {
 		}
 	}
 	return false
+}
+
+func selectorList(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	redacted := make([]string, 0, len(values))
+	for _, value := range values {
+		redacted = append(redacted, redactedSelector(value))
+	}
+	return strings.Join(redacted, ",")
+}
+
+func redactedSelector(value string) string {
+	selector, _ := security.RedactContent(value)
+	return selector
 }
 
 type RollbackTextReport struct {
