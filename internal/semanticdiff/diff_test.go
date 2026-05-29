@@ -99,16 +99,25 @@ func TestCompareClassifiesSecurityAndCapabilityConflicts(t *testing.T) {
 	}
 }
 
-func TestCompareDoesNotConflictForSkippedSessions(t *testing.T) {
-	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("session:global-123", model.KindSession, "claude", "hash-session", model.StatusUnsupported, "skip-session-migration", nil))
+func TestCompareIgnoresSkippedSessions(t *testing.T) {
+	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("session:global-removed", model.KindSession, "claude", "hash-old", model.StatusUnsupported, "skip-session-migration", nil))
+	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("session:global-added", model.KindSession, "claude", "hash-new", model.StatusUnsupported, "skip-session-migration", nil))
 
-	result := Compare(Input{CurrentClaude: currentClaude})
+	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude})
 
-	if len(result.Diffs) != 1 {
-		t.Fatalf("diffs = %#v, want one", result.Diffs)
+	if len(result.Diffs) != 0 || len(result.Conflicts) != 0 {
+		t.Fatalf("Compare result = %#v, want no diffs or conflicts", result)
 	}
-	if len(result.Conflicts) != 0 {
-		t.Fatalf("conflicts = %#v, want none", result.Conflicts)
+}
+
+func TestCompareIgnoresPluginAdaptationMetadata(t *testing.T) {
+	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("plugin:global-cache", model.KindConfig, "claude", "hash-old", model.StatusPartial, "review-plugin-adaptation", nil))
+	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("plugin:global-cache", model.KindConfig, "claude", "hash-new", model.StatusPartial, "review-plugin-adaptation", nil))
+
+	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude})
+
+	if len(result.Diffs) != 0 || len(result.Conflicts) != 0 {
+		t.Fatalf("Compare result = %#v, want no diffs or conflicts", result)
 	}
 }
 
@@ -129,7 +138,7 @@ func TestCompareDoesNotConflictForReviewPathScopedRules(t *testing.T) {
 	}
 }
 
-func TestCompareDoesNotConflictWhenCurrentStatesConverge(t *testing.T) {
+func TestCompareIgnoresConvergedCurrentStates(t *testing.T) {
 	warning := []model.Warning{{Code: "secret-redacted", Message: "redacted"}}
 	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("skill:global-skill-creator", model.KindSkill, "claude", "hash-skill", model.StatusPartial, "convert-skill-with-review", warning))
 	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("skill:global-skill-creator", model.KindSkill, "claude", "hash-skill", model.StatusPartial, "convert-skill-with-review", warning))
@@ -137,11 +146,8 @@ func TestCompareDoesNotConflictWhenCurrentStatesConverge(t *testing.T) {
 
 	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
 
-	if len(result.Diffs) != 1 {
-		t.Fatalf("diffs = %#v, want one", result.Diffs)
-	}
-	if len(result.Conflicts) != 0 {
-		t.Fatalf("conflicts = %#v, want none", result.Conflicts)
+	if len(result.Diffs) != 0 || len(result.Conflicts) != 0 {
+		t.Fatalf("Compare result = %#v, want no diffs or conflicts", result)
 	}
 }
 
