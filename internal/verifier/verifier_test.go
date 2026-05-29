@@ -12,6 +12,19 @@ import (
 
 const verifierFixtureSecret = "ghp_agent_canon_fixture_secret_must_not_leak"
 
+func TestVerifyRejectsUnsupportedTargetBeforeInspectingPaths(t *testing.T) {
+	root := t.TempDir()
+	_, err := Verify(Options{
+		Target:     "unknown",
+		Project:    filepath.Join(root, "missing-project"),
+		ClaudeHome: filepath.Join(root, "missing-claude-home"),
+		CodexHome:  filepath.Join(root, "missing-codex-home"),
+	})
+	if err == nil || !strings.Contains(err.Error(), `unsupported verify target "unknown"`) {
+		t.Fatalf("Verify error = %v, want unsupported target", err)
+	}
+}
+
 func TestVerifyCodexPassesGeneratedProjectTargets(t *testing.T) {
 	paths := newVerifyFixture(t)
 	writeFile(t, filepath.Join(paths.project, "AGENTS.md"), "# AGENTS.md preview\n\nGenerated preview for Codex.\n")
@@ -34,6 +47,32 @@ func TestVerifyCodexPassesGeneratedProjectTargets(t *testing.T) {
 	}
 }
 
+func TestVerifyCodexPassesGlobalFallbackTargets(t *testing.T) {
+	paths := newVerifyFixture(t)
+	writeFile(t, filepath.Join(paths.codexHome, "AGENTS.md"), "# Global AGENTS\n")
+	writeFile(t, filepath.Join(paths.codexHome, "config.toml"), "[mcp_servers.github]\ncommand = \"gh\"\n")
+	writeFile(t, filepath.Join(paths.codexHome, "skills", "review", "SKILL.md"), "# Review\n")
+	writeFile(t, filepath.Join(paths.codexHome, "agents", "reviewer.toml"), "name = \"reviewer\"\n")
+
+	report, err := Verify(Options{Target: "codex", Project: paths.project, ClaudeHome: paths.claudeHome, CodexHome: paths.codexHome})
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+
+	assertCheckStatus(t, report, "codex-instructions-project", model.VerifyStatusPass)
+	assertCheckPath(t, report, "codex-instructions-project", filepath.Join(paths.codexHome, "AGENTS.md"))
+	assertCheckStatus(t, report, "codex-config-project", model.VerifyStatusPass)
+	assertCheckPath(t, report, "codex-config-project", filepath.Join(paths.codexHome, "config.toml"))
+	assertCheckStatus(t, report, "codex-mcp-list", model.VerifyStatusPass)
+	assertCheckStatus(t, report, "codex-skills-project", model.VerifyStatusPass)
+	assertCheckPath(t, report, "codex-skills-project", filepath.Join(paths.codexHome, "skills"))
+	assertCheckStatus(t, report, "codex-agents-project", model.VerifyStatusPass)
+	assertCheckPath(t, report, "codex-agents-project", filepath.Join(paths.codexHome, "agents"))
+	if report.Summary.Fail != 0 {
+		t.Fatalf("Summary.Fail = %d, want 0; checks=%#v", report.Summary.Fail, report.Checks)
+	}
+}
+
 func TestVerifyCodexWarnsForMissingOptionalTargets(t *testing.T) {
 	paths := newVerifyFixture(t)
 
@@ -45,10 +84,24 @@ func TestVerifyCodexWarnsForMissingOptionalTargets(t *testing.T) {
 	assertCheckStatus(t, report, "codex-instructions-project", model.VerifyStatusWarn)
 	assertCheckStatus(t, report, "codex-config-project", model.VerifyStatusWarn)
 	assertCheckStatus(t, report, "codex-mcp-list", model.VerifyStatusWarn)
+	assertCheckStatus(t, report, "codex-skills-project", model.VerifyStatusPass)
+	assertCheckStatus(t, report, "codex-agents-project", model.VerifyStatusPass)
 	assertCheckStatus(t, report, "sync-conflicts", model.VerifyStatusWarn)
 	if report.Summary.Fail != 0 {
 		t.Fatalf("Summary.Fail = %d, want 0; checks=%#v", report.Summary.Fail, report.Checks)
 	}
+}
+
+func TestVerifyCodexWarnsWhenExpectedAgentsTargetIsMissing(t *testing.T) {
+	paths := newVerifyFixture(t)
+	writeFile(t, filepath.Join(paths.claudeHome, "agents", "reviewer.md"), "agent instructions\n")
+
+	report, err := Verify(Options{Target: "codex", Project: paths.project, ClaudeHome: paths.claudeHome, CodexHome: paths.codexHome})
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+
+	assertCheckStatus(t, report, "codex-agents-project", model.VerifyStatusWarn)
 }
 
 func TestVerifyCodexFailsMalformedProjectConfig(t *testing.T) {
@@ -61,6 +114,22 @@ func TestVerifyCodexFailsMalformedProjectConfig(t *testing.T) {
 	}
 
 	assertCheckStatus(t, report, "codex-config-project", model.VerifyStatusFail)
+	if report.Summary.Fail == 0 {
+		t.Fatalf("Summary.Fail = 0, want failure; checks=%#v", report.Checks)
+	}
+}
+
+func TestVerifyCodexFailsMalformedGlobalFallbackConfig(t *testing.T) {
+	paths := newVerifyFixture(t)
+	writeFile(t, filepath.Join(paths.codexHome, "config.toml"), "[mcp_servers.github\ncommand = \"gh\"\n")
+
+	report, err := Verify(Options{Target: "codex", Project: paths.project, ClaudeHome: paths.claudeHome, CodexHome: paths.codexHome})
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+
+	assertCheckStatus(t, report, "codex-config-project", model.VerifyStatusFail)
+	assertCheckPath(t, report, "codex-config-project", filepath.Join(paths.codexHome, "config.toml"))
 	if report.Summary.Fail == 0 {
 		t.Fatalf("Summary.Fail = 0, want failure; checks=%#v", report.Checks)
 	}
@@ -189,6 +258,20 @@ func assertCheckStatus(t *testing.T, report model.VerifyReport, id string, want 
 		}
 		if check.Status != want {
 			t.Fatalf("check %s status = %q, want %q; check=%#v", id, check.Status, want, check)
+		}
+		return
+	}
+	t.Fatalf("missing check %s in %#v", id, report.Checks)
+}
+
+func assertCheckPath(t *testing.T, report model.VerifyReport, id string, want string) {
+	t.Helper()
+	for _, check := range report.Checks {
+		if check.ID != id {
+			continue
+		}
+		if check.Path != want {
+			t.Fatalf("check %s path = %q, want %q; check=%#v", id, check.Path, want, check)
 		}
 		return
 	}
