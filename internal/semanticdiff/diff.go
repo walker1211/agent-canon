@@ -120,18 +120,56 @@ func classifyConflict(changedOurs bool, changedTheirs bool, states ...*model.Res
 	if !changedOurs && !changedTheirs {
 		return "", false
 	}
+	ours := states[2]
+	theirs := states[3]
+	if currentStatesEquivalent(ours, theirs) || isSkippedSession(states...) || isCurrentReviewPathScopedRule(ours, theirs) {
+		return "", false
+	}
 	if hasSecurityRisk(states...) {
 		return model.ConflictKindSecurity, true
 	}
 	if hasCapabilityRisk(states...) {
 		return model.ConflictKindCapability, true
 	}
-	ours := states[2]
-	theirs := states[3]
 	if changedOurs && changedTheirs && ours != nil && theirs != nil && hashOf(ours) != hashOf(theirs) {
 		return model.ConflictKindContent, true
 	}
 	return "", false
+}
+
+func currentStatesEquivalent(ours *model.ResourceState, theirs *model.ResourceState) bool {
+	if ours == nil || theirs == nil {
+		return false
+	}
+	return ours.Kind == theirs.Kind && ours.Scope == theirs.Scope && stateSignature(ours) == stateSignature(theirs)
+}
+
+func isSkippedSession(states ...*model.ResourceState) bool {
+	found := false
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+		if state.Kind != model.KindSession || state.Strategy != "skip-session-migration" {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func isCurrentReviewPathScopedRule(states ...*model.ResourceState) bool {
+	found := false
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+		if state.Kind != model.KindRule || state.Strategy != "review-path-scoped-rule" {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 func hasSecurityRisk(states ...*model.ResourceState) bool {
