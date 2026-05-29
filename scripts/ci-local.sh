@@ -19,6 +19,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 git -C "$repo_root" archive HEAD | tar -x -C "$work_dir"
+git -C "$work_dir" init -q
+git -C "$work_dir" add -A
 
 (
   cd "$work_dir"
