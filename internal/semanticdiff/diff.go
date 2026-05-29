@@ -39,6 +39,9 @@ func Compare(input Input) Result {
 		theirs := currentCodex[id]
 		changedOurs := stateChanged(bc, ours)
 		changedTheirs := stateChanged(bt, theirs)
+		if isNonActionableDiff(bc, bt, ours, theirs) {
+			continue
+		}
 		if changedOurs || changedTheirs {
 			result.Diffs = append(result.Diffs, buildDiff(id, bc, bt, ours, theirs))
 		}
@@ -116,6 +119,10 @@ func buildDiff(id string, baseClaude *model.ResourceState, baseCodex *model.Reso
 	}
 }
 
+func isNonActionableDiff(baseClaude *model.ResourceState, baseCodex *model.ResourceState, ours *model.ResourceState, theirs *model.ResourceState) bool {
+	return currentStatesEquivalent(ours, theirs) || isSkippedSession(baseClaude, baseCodex, ours, theirs) || isPluginAdaptation(baseClaude, baseCodex, ours, theirs)
+}
+
 func classifyConflict(changedOurs bool, changedTheirs bool, states ...*model.ResourceState) (model.ConflictKind, bool) {
 	if !changedOurs && !changedTheirs {
 		return "", false
@@ -151,6 +158,20 @@ func isSkippedSession(states ...*model.ResourceState) bool {
 			continue
 		}
 		if state.Kind != model.KindSession || state.Strategy != "skip-session-migration" {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func isPluginAdaptation(states ...*model.ResourceState) bool {
+	found := false
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+		if !strings.HasPrefix(state.ID, "plugin:") || state.Kind != model.KindConfig || state.Strategy != "review-plugin-adaptation" {
 			return false
 		}
 		found = true
