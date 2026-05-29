@@ -121,6 +121,30 @@ func TestCompareIgnoresPluginAdaptationMetadata(t *testing.T) {
 	}
 }
 
+func TestCompareIgnoresAgentsAggregateTargetDriftWhenSourceContentIsUnchanged(t *testing.T) {
+	baseClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", nil))
+	currentClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-rule", model.StatusPartial, "review-path-scoped-rule", nil))
+	currentCodex := snapshotReport("codex", stateWithPath("rule:global-go", model.KindRule, "codex", "/codex/AGENTS.md", "hash-agents", model.StatusPartial, "review-path-scoped-rule", nil))
+
+	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
+
+	if len(result.Diffs) != 0 || len(result.Conflicts) != 0 {
+		t.Fatalf("Compare result = %#v, want no diffs or conflicts", result)
+	}
+}
+
+func TestCompareReportsAgentsAggregateDiffWhenSourceContentChanges(t *testing.T) {
+	baseClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-old", model.StatusCompatible, "merge-rule-into-agents-md", nil))
+	currentClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-new", model.StatusCompatible, "merge-rule-into-agents-md", nil))
+	currentCodex := snapshotReport("codex", stateWithPath("rule:global-go", model.KindRule, "codex", "/codex/AGENTS.md", "hash-agents", model.StatusCompatible, "merge-rule-into-agents-md", nil))
+
+	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
+
+	if len(result.Diffs) != 1 || result.Diffs[0].ResourceID != "rule:global-go" {
+		t.Fatalf("diffs = %#v, want source content diff", result.Diffs)
+	}
+}
+
 func TestCompareDoesNotConflictForReviewPathScopedRules(t *testing.T) {
 	warning := []model.Warning{{Code: "secret-redacted", Message: "redacted"}}
 	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "claude", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", warning))
@@ -205,11 +229,16 @@ func stateWithKind(id string, kind model.ResourceKind, tool string, hash string,
 }
 
 func stateWithKindAndStrategy(id string, kind model.ResourceKind, tool string, hash string, status model.Status, strategy string, warnings []model.Warning) model.ResourceState {
+	return stateWithPath(id, kind, tool, "", hash, status, strategy, warnings)
+}
+
+func stateWithPath(id string, kind model.ResourceKind, tool string, path string, hash string, status model.Status, strategy string, warnings []model.Warning) model.ResourceState {
 	return model.ResourceState{
 		ID:          id,
 		Kind:        kind,
 		Scope:       model.ScopeProject,
 		Tool:        tool,
+		Path:        path,
 		Status:      status,
 		Strategy:    strategy,
 		ContentHash: hash,
