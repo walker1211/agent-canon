@@ -213,6 +213,20 @@ func validateApplyTarget(root string, target string, action model.ApplyAction) (
 		return "", "", fmt.Errorf("apply target %s escapes root %s", target, rootAbs)
 	}
 
+	if action == model.ApplyActionNoop {
+		info, err := os.Stat(target)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return "", "", fmt.Errorf("apply target %s does not exist", target)
+			}
+			return "", "", fmt.Errorf("inspect apply target %s: %w", target, err)
+		}
+		if info.IsDir() {
+			return "", "", fmt.Errorf("apply target %s is a directory", target)
+		}
+		return target, rel, nil
+	}
+
 	rootResolved, err := resolveRootBoundary(rootAbs)
 	if err != nil {
 		return "", "", err
