@@ -138,8 +138,6 @@ func (b codexBuilder) skillPreview(resource model.Resource) (PreviewFile, error)
 		return PreviewFile{}, err
 	}
 	var buf bytes.Buffer
-	writeLine(&buf, "<!-- Generated Codex skill candidate from %s. Partial conversion; review required. -->", resource.ID)
-	writeLine(&buf, "")
 	buf.Write(bytes.TrimSpace(redactSourceLines(contents)))
 	writeLine(&buf, "")
 	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), "SKILL.md")), Contents: buf.Bytes()}, nil
