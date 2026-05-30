@@ -126,6 +126,7 @@ func TestPublicReadinessFilesDoNotExposePrivateContent(t *testing.T) {
 		filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
 		filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
 		filepath.Join(".github", "workflows", "ci.yml"),
+		filepath.Join(".github", "workflows", "codeql.yml"),
 		filepath.Join(".github", "workflows", "release.yml"),
 		filepath.Join("scripts", "github-readiness.sh"),
 		filepath.Join("scripts", "package-release.sh"),
@@ -231,9 +232,26 @@ exit 1
 func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	ci := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))
-	for _, want := range []string{"go-version-file: go.mod", "cache: false", "scripts/secret-scan.sh", "scripts/package-release.sh v0.0.0-ci"} {
+	for _, want := range []string{"actions/checkout@v6", "actions/setup-go@v6", "go-version-file: go.mod", "cache: false", "scripts/secret-scan.sh", "scripts/package-release.sh v0.0.0-ci"} {
 		if !strings.Contains(ci, want) {
 			t.Fatalf("ci.yml missing %q", want)
+		}
+	}
+	codeql := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "codeql.yml"))
+	for _, want := range []string{
+		"name: CodeQL",
+		"security-events: write",
+		"github.event.repository.private == false",
+		"actions/checkout@v6",
+		"github/codeql-action/init@v4",
+		"languages: go",
+		"build-mode: manual",
+		"actions/setup-go@v6",
+		"go-version-file: go.mod",
+		"github/codeql-action/analyze@v4",
+	} {
+		if !strings.Contains(codeql, want) {
+			t.Fatalf("codeql.yml missing %q", want)
 		}
 	}
 	release := readFileString(t, filepath.Join(repoRoot, ".github", "workflows", "release.yml"))
@@ -241,6 +259,10 @@ func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 		"tags:",
 		"v*",
 		"security-events: read",
+		"actions/checkout@v6",
+		"actions/setup-go@v6",
+		"actions/upload-artifact@v7",
+		"actions/download-artifact@v8",
 		"fetch-depth: 0",
 		"scripts/secret-scan.sh --history",
 		"GH_TOKEN: ${{ github.token }}",
@@ -271,6 +293,7 @@ func publicReadinessFiles() []string {
 		filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
 		filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
 		filepath.Join(".github", "workflows", "ci.yml"),
+		filepath.Join(".github", "workflows", "codeql.yml"),
 		filepath.Join(".github", "workflows", "release.yml"),
 		filepath.Join("scripts", "github-readiness.sh"),
 		filepath.Join("scripts", "package-release.sh"),
