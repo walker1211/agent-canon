@@ -44,6 +44,18 @@ agent-canon apply codex --global --merge-config --dry-run --only config --projec
 
 `--merge-config` only merges MCP server entries. It does not overwrite model, profile, sandbox, auth, provider, or feature settings.
 
+## Current Scope
+
+`agent-canon` currently focuses on Claude Code to Codex CLI semantic migration and review. It supports project-local state, explicit global-home writebacks, conflict review, backups, rollback manifests, and MCP server entry merge support.
+
+Non-goals for the current scope:
+
+- No arbitrary TOML merge beyond MCP server entries.
+- No secret migration into target files, logs, or reports.
+- No default writes to global Claude or Codex homes.
+- No full session history migration.
+- No guarantee that hooks, permissions, agents, or memory convert losslessly across tools.
+
 ## Common Commands
 
 ```sh
