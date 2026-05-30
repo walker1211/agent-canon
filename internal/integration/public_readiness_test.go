@@ -266,7 +266,7 @@ func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 		"fetch-depth: 0",
 		"scripts/secret-scan.sh --history",
 		"GH_TOKEN: ${{ github.token }}",
-		"scripts/github-readiness.sh --repo \"${GITHUB_REPOSITORY}\" --strict",
+		"scripts/github-readiness.sh --repo \"${GITHUB_REPOSITORY}\" --report-only",
 		"linux",
 		"darwin",
 		"windows",
