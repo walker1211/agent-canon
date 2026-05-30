@@ -22,6 +22,12 @@ agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude 
 agent-canon --help
 ```
 
+从源码构建本地可执行文件：
+
+```sh
+./build.sh
+```
+
 确认 dry-run 输出后，可以显式执行写回：
 
 ```sh

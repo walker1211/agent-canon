@@ -13,8 +13,10 @@ Requirements:
 Build the CLI locally:
 
 ```sh
-go build ./cmd/agent-canon
+./build.sh
 ```
+
+The script writes `agent-canon` in the repository root.
 
 Run the CLI from source:
 

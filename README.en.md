@@ -22,6 +22,12 @@ Show all commands:
 agent-canon --help
 ```
 
+Build a local binary from source:
+
+```sh
+./build.sh
+```
+
 After reviewing the dry-run output, apply explicitly:
 
 ```sh

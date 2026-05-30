@@ -122,6 +122,12 @@ func TestReleaseScriptsContracts(t *testing.T) {
 			t.Fatalf("ci-local.sh missing %q", want)
 		}
 	}
+	buildScript := readFileString(t, filepath.Join(repoRoot, "build.sh"))
+	for _, want := range []string{"#!/bin/sh", "go build -o agent-canon ./cmd/agent-canon"} {
+		if !strings.Contains(buildScript, want) {
+			t.Fatalf("build.sh missing %q", want)
+		}
+	}
 	tagRelease := readFileString(t, filepath.Join(repoRoot, "scripts", "tag-release.sh"))
 	for _, want := range []string{"status --porcelain", "scripts/ci-local.sh clean", "git tag", "git push origin"} {
 		if !strings.Contains(tagRelease, want) {
