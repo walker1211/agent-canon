@@ -349,6 +349,9 @@ func TestScanRedactsMCPEnvSecrets(t *testing.T) {
 
 	resource := requireResource(t, report.Resources, "mcp:global-fixture-github")
 	assertResource(t, resource, model.KindMCPServer, model.ScopeGlobal, model.StatusDangerous)
+	if resource.SourceName != "fixture-github" {
+		t.Fatalf("SourceName = %q, want fixture-github", resource.SourceName)
+	}
 	if !hasWarningCode(resource.Warnings, "secret-redacted") {
 		t.Fatalf("MCP resource warnings missing secret-redacted: %#v", resource.Warnings)
 	}

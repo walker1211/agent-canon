@@ -490,6 +490,7 @@ type ApplyTextReport struct {
 	Project       string
 	Mode          string
 	IncludeGlobal bool
+	MergeConfig   bool
 	BackupDir     string
 	ManifestPath  string
 	Filters       ApplyFilterTextReport
@@ -651,6 +652,9 @@ func applyConfirmCommand(report ApplyTextReport) string {
 	if report.IncludeGlobal {
 		args = append(args, "--global")
 	}
+	if report.MergeConfig {
+		args = append(args, "--merge-config")
+	}
 	args = append(args, "--yes")
 	args = appendApplyFilterArgs(args, report.Filters)
 	return strings.Join(args, " ")
@@ -660,6 +664,9 @@ func applyDryRunCommand(report ApplyTextReport) string {
 	args := []string{"agent-canon", "apply", report.Target}
 	if report.IncludeGlobal {
 		args = append(args, "--global")
+	}
+	if report.MergeConfig {
+		args = append(args, "--merge-config")
 	}
 	args = append(args, "--dry-run")
 	args = appendApplyFilterArgs(args, report.Filters)

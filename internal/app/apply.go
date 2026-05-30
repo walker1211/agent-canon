@@ -54,7 +54,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	}
 	planReport := planner.Build(scanReport)
 	filters := applypkg.ApplyFilters{Only: opts.ApplyOnly, Exclude: opts.ApplyExclude}
-	codexPlan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global, Filters: filters})
+	codexPlan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global, Filters: filters, MergeConfig: opts.MergeConfig})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -62,11 +62,11 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	filterReport := applyFilterReport(filters)
 	globalGroups := applyGroupReports(applypkg.GroupGlobalChanges(codexPlan.Changes))
 	if opts.DryRun {
-		return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: codexPlan.Warnings})
+		return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "dry-run", IncludeGlobal: opts.Global, MergeConfig: opts.MergeConfig, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: codexPlan.Warnings})
 	}
 
 	if !opts.Yes {
-		if err := renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: codexPlan.Warnings}); err != nil {
+		if err := renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "planned", IncludeGlobal: opts.Global, MergeConfig: opts.MergeConfig, Filters: filterReport, GlobalGroups: globalGroups, Changes: plannedChanges, Warnings: codexPlan.Warnings}); err != nil {
 			return err
 		}
 		confirmed, err := confirmApply(stdin, stdout)
@@ -104,7 +104,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
-	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, Filters: filterReport, GlobalGroups: globalGroups, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: applyWarnings})
+	return renderApply(stdout, render.ApplyTextReport{Target: "codex", Project: opts.Project, Mode: "applied", IncludeGlobal: opts.Global, MergeConfig: opts.MergeConfig, Filters: filterReport, GlobalGroups: globalGroups, BackupDir: backupDir, ManifestPath: manifestPath, Changes: result.Changes, Warnings: applyWarnings})
 }
 
 func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {

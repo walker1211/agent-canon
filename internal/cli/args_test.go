@@ -330,11 +330,13 @@ func TestParseAcceptsValidApplyTargetsAndFlags(t *testing.T) {
 		dryRun      bool
 		yes         bool
 		global      bool
+		mergeConfig bool
 	}{
 		{name: "codex", args: []string{"apply", "codex", "--project", root}, applyTarget: "codex"},
 		{name: "codex dry run", args: []string{"apply", "codex", "--dry-run", "--project", root}, applyTarget: "codex", dryRun: true},
 		{name: "codex yes", args: []string{"apply", "codex", "--yes", "--project", root}, applyTarget: "codex", yes: true},
 		{name: "codex global yes", args: []string{"apply", "codex", "--global", "--yes", "--project", root}, applyTarget: "codex", yes: true, global: true},
+		{name: "codex merge config", args: []string{"apply", "codex", "--merge-config", "--project", root}, applyTarget: "codex", mergeConfig: true},
 		{name: "claude", args: []string{"apply", "claude", "--project", root}, applyTarget: "claude"},
 		{name: "claude dry run", args: []string{"apply", "claude", "--dry-run", "--project", root}, applyTarget: "claude", dryRun: true},
 		{name: "claude yes", args: []string{"apply", "claude", "--yes", "--project", root}, applyTarget: "claude", yes: true},
@@ -359,6 +361,9 @@ func TestParseAcceptsValidApplyTargetsAndFlags(t *testing.T) {
 			}
 			if opts.Global != tc.global {
 				t.Fatalf("Global = %v, want %v", opts.Global, tc.global)
+			}
+			if opts.MergeConfig != tc.mergeConfig {
+				t.Fatalf("MergeConfig = %v, want %v", opts.MergeConfig, tc.mergeConfig)
 			}
 		})
 	}
@@ -391,6 +396,29 @@ func TestParseRejectsInvalidApplyForms(t *testing.T) {
 		{name: "unsupported target", args: []string{"apply", "other", "--project", root}},
 		{name: "extra arg", args: []string{"apply", "codex", "extra", "--project", root}},
 		{name: "out", args: []string{"apply", "codex", "--out", "preview", "--project", root}},
+		{name: "claude merge config", args: []string{"apply", "claude", "--merge-config", "--project", root}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+		})
+	}
+}
+
+func TestParseRejectsMergeConfigOutsideApplyCodex(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "scan", args: []string{"scan", "--merge-config", "--project", root}},
+		{name: "apply claude", args: []string{"apply", "claude", "--merge-config", "--project", root}},
+		{name: "rollback", args: []string{"rollback", "apply-1", "--merge-config", "--project", root}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse(tc.args, root, root)
@@ -755,6 +783,7 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 				"compile claude/codex --out writes",
 				"apply claude/codex writes",
 				"allow writes under Claude or Codex home",
+				"merge safe Claude MCP server entries",
 				"sync/resolve write only project .agent-canon",
 				"agent-canon sync claude codex [flags]",
 				"agent-canon conflicts [flags]",

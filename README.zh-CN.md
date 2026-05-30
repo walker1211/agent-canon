@@ -36,6 +36,14 @@ agent-canon apply codex --yes --project <repo-root> --claude-home ~/.claude --co
 
 默认不会写入全局 home。需要写入全局 Claude 或 Codex 配置时，必须显式传 `--global` 并先审查 dry-run 输出。
 
+如果你已经有一份 Codex 配置，只想合并安全的 Claude MCP server entries：
+
+```sh
+agent-canon apply codex --global --merge-config --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+`--merge-config` 只合并 MCP server entries，不会覆盖 model、profile、sandbox、auth、provider 或 feature settings。
+
 ## 常用命令
 
 ```sh

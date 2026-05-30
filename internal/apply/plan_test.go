@@ -105,6 +105,87 @@ func TestBuildCodexPlanSkipsReviewOnlyConfigWhenTargetHasUserConfig(t *testing.T
 	}
 }
 
+func TestBuildCodexPlanMergeConfigMergesMCPIntoExistingUserConfig(t *testing.T) {
+	root := t.TempDir()
+	mcp := resource(t, root, model.ScopeGlobal, model.KindMCPServer, "mcp:global-fixture-github", "settings.json", filepath.Join("codex-home", "config.toml"), model.StatusPartial, `{
+		"mcpServers": {
+			"fixture-github": {
+				"command": "fixture-mcp",
+				"args": ["--stdio"],
+				"env": {"SAFE_MODE": "1"}
+			}
+		}
+	}`)
+	mcp.SourceName = "fixture-github"
+	scan := syntheticScan(t, root, mcp)
+	writeFile(t, filepath.Join(scan.CodexHome, "config.toml"), "model = \"fixture-model\"\n")
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}, MergeConfig: true})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+
+	change := requireChange(t, plan, filepath.Join(scan.CodexHome, "config.toml"))
+	contents := string(change.Contents)
+	for _, want := range []string{"model = \"fixture-model\"", "[mcp_servers.\"fixture-github\"]", "command = \"fixture-mcp\"", "args = [\"--stdio\"]", "env = { \"SAFE_MODE\" = \"1\" }"} {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("merged config missing %q:\n%s", want, contents)
+		}
+	}
+	if hasWarning(plan.Warnings, "review-only-config-skipped") {
+		t.Fatalf("warnings unexpectedly include review-only-config-skipped: %#v", plan.Warnings)
+	}
+}
+
+func TestBuildCodexPlanMergeConfigBlocksSameNameDifferentMCP(t *testing.T) {
+	root := t.TempDir()
+	mcp := resource(t, root, model.ScopeGlobal, model.KindMCPServer, "mcp:global-fixture-github", "settings.json", filepath.Join("codex-home", "config.toml"), model.StatusPartial, `{
+		"mcpServers": {
+			"fixture-github": {"command": "fixture-mcp"}
+		}
+	}`)
+	mcp.SourceName = "fixture-github"
+	scan := syntheticScan(t, root, mcp)
+	writeFile(t, filepath.Join(scan.CodexHome, "config.toml"), "[mcp_servers.\"fixture-github\"]\ncommand = \"other-mcp\"\n")
+
+	_, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}, MergeConfig: true})
+	if err == nil {
+		t.Fatal("BuildCodexPlan returned nil error")
+	}
+	if !strings.Contains(err.Error(), "config-merge-conflict") {
+		t.Fatalf("error = %q, want config-merge-conflict", err)
+	}
+}
+
+func TestBuildCodexPlanMergeConfigDoesNotLeakSkippedMCPSecrets(t *testing.T) {
+	root := t.TempDir()
+	mcp := resource(t, root, model.ScopeGlobal, model.KindMCPServer, "mcp:global-fixture-github", "settings.json", filepath.Join("codex-home", "config.toml"), model.StatusDangerous, `{
+		"mcpServers": {
+			"fixture-github": {
+				"command": "fixture-mcp",
+				"env": {"GITHUB_TOKEN": "`+fixtureSecret+`"}
+			}
+		}
+	}`)
+	mcp.SourceName = "fixture-github"
+	mcp.Warnings = []model.Warning{{Code: "secret-redacted", Message: "MCP server fixture-github contains env key GITHUB_TOKEN; value redacted and requires manual target configuration."}}
+	scan := syntheticScan(t, root, mcp)
+	writeFile(t, filepath.Join(scan.CodexHome, "config.toml"), "model = \"fixture-model\"\n")
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true, Filters: applypkg.ApplyFilters{Only: []string{"config"}}, MergeConfig: true})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+	for _, change := range plan.Changes {
+		if strings.Contains(string(change.Contents), fixtureSecret) {
+			t.Fatalf("%s leaked fixture secret", change.Path)
+		}
+	}
+	if !hasWarning(plan.Warnings, "mcp-merge-skipped-secret") {
+		t.Fatalf("warnings missing mcp-merge-skipped-secret: %#v", plan.Warnings)
+	}
+}
+
 func TestBuildClaudePlanSkipsReviewOnlySettingsWhenTargetHasUserConfig(t *testing.T) {
 	root := t.TempDir()
 	tests := []struct {

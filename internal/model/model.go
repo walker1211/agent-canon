@@ -112,6 +112,7 @@ type Resource struct {
 	SourcePath     string       `json:"sourcePath"`
 	TargetTool     string       `json:"targetTool,omitempty"`
 	TargetPathHint string       `json:"targetPathHint,omitempty"`
+	SourceName     string       `json:"sourceName,omitempty"`
 	Status         Status       `json:"status"`
 	Strategy       string       `json:"strategy"`
 	Warnings       []Warning    `json:"warnings"`

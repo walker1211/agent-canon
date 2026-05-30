@@ -150,6 +150,62 @@ func TestRunApplyCodexGlobalYesOnlyConfigSkipsExistingUserConfig(t *testing.T) {
 	}
 }
 
+func TestRunApplyCodexGlobalDryRunMergeConfigWritesNothing(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.claudeHome, "settings.json"), `{
+		"mcpServers": {
+			"fixture-github": {"command": "fixture-mcp", "args": ["--stdio"]}
+		}
+	}
+`)
+	runInitialSync(t, fixture)
+	codexHomeBefore := directorySnapshot(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--global", "--merge-config", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), filepath.Join(fixture.codexHome, "config.toml")) || !strings.Contains(stdout.String(), "modify") {
+		t.Fatalf("stdout missing merged config dry-run change: %q", stdout.String())
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("merge-config dry-run modified Codex home")
+	}
+}
+
+func TestRunApplyCodexGlobalYesMergeConfigPreservesUserConfig(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.claudeHome, "settings.json"), `{
+		"mcpServers": {
+			"fixture-github": {"command": "fixture-mcp", "args": ["--stdio"]}
+		}
+	}
+`)
+	configPath := filepath.Join(fixture.codexHome, "config.toml")
+	writeFile(t, configPath, "model = \"fixture-model\"\n")
+	runInitialSync(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--global", "--yes", "--merge-config", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	contents := readFileText(t, configPath)
+	for _, want := range []string{"model = \"fixture-model\"", "[mcp_servers.\"fixture-github\"]", "command = \"fixture-mcp\"", "args = [\"--stdio\"]"} {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("config missing %q:\n%s", want, contents)
+		}
+	}
+	if strings.Contains(stdout.String(), "review-only-config-skipped") {
+		t.Fatalf("stdout unexpectedly contains review-only-config-skipped:\n%s", stdout.String())
+	}
+	manifest := readOnlyRollbackManifest(t, filepath.Join(fixture.project, ".agent-canon", "rollback"))
+	if len(manifest.Changes) == 0 || manifest.Changes[0].BackupPath == "" {
+		t.Fatalf("rollback manifest missing backup change: %#v", manifest.Changes)
+	}
+}
+
 func TestRunApplyCodexConfirmationNoRejectsWithoutWrites(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	runInitialSync(t, fixture)

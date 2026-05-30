@@ -71,6 +71,7 @@ Flags:
   --dry-run              apply claude/codex/rollback: show planned changes without writing
   --yes                  apply claude/codex/rollback: skip interactive confirmation
   --global               apply claude/codex/rollback: allow writes under Claude or Codex home
+  --merge-config         apply codex: merge safe Claude MCP server entries into Codex config.toml
   --only string         apply claude/codex: include only a matching path or group; repeatable
   --exclude string      apply claude/codex: exclude a matching path or group; repeatable
 `
@@ -102,6 +103,7 @@ type Options struct {
 	DryRun          bool
 	Yes             bool
 	Global          bool
+	MergeConfig     bool
 	Warnings        []string
 }
 
@@ -278,6 +280,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.BoolVar(&opts.DryRun, "dry-run", opts.DryRun, "show planned apply or rollback changes without writing")
 	flags.BoolVar(&opts.Yes, "yes", opts.Yes, "skip apply or rollback confirmation")
 	flags.BoolVar(&opts.Global, "global", opts.Global, "allow apply or rollback writes under --codex-home")
+	flags.BoolVar(&opts.MergeConfig, "merge-config", opts.MergeConfig, "merge safe MCP server entries into Codex config.toml")
 	var applyOnly stringList
 	var applyExclude stringList
 	flags.Var(&applyOnly, "only", "apply only matching path or group; repeatable")
@@ -332,7 +335,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 			return Options{}, usageError{message: fmt.Sprintf("compile %s requires --out", opts.CompileTarget), code: 1}
 		}
 	}
-	if err := validateApplyFlags(opts.Command, flags); err != nil {
+	if err := validateApplyFlags(opts, flags); err != nil {
 		return Options{}, err
 	}
 	if err := validateResolveDecision(opts.Command, flags, &opts); err != nil {
@@ -417,11 +420,14 @@ func flagWasSet(flags *flag.FlagSet, name string) bool {
 	return set
 }
 
-func validateApplyFlags(command string, flags *flag.FlagSet) error {
-	if command == "apply" {
+func validateApplyFlags(opts Options, flags *flag.FlagSet) error {
+	if flagWasSet(flags, "merge-config") && (opts.Command != "apply" || opts.ApplyTarget != "codex") {
+		return usageError{message: "--merge-config is supported only for apply codex", code: 1}
+	}
+	if opts.Command == "apply" {
 		return nil
 	}
-	if command == "rollback" {
+	if opts.Command == "rollback" {
 		for _, name := range []string{"only", "exclude"} {
 			if flagWasSet(flags, name) {
 				return usageError{message: fmt.Sprintf("--%s is supported only for apply claude/codex", name), code: 1}

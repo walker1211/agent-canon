@@ -36,6 +36,14 @@ agent-canon apply codex --yes --project <repo-root> --claude-home ~/.claude --co
 
 Global homes are not written by default. To write global Claude or Codex configuration, pass `--global` explicitly and review the dry-run output first.
 
+If you already have a Codex config and only want to merge safe Claude MCP server entries:
+
+```sh
+agent-canon apply codex --global --merge-config --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+`--merge-config` only merges MCP server entries. It does not overwrite model, profile, sandbox, auth, provider, or feature settings.
+
 ## Common Commands
 
 ```sh

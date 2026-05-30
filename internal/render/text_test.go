@@ -163,6 +163,28 @@ func TestApplyTextDryRunWithGlobalExplainsRealHomeTargets(t *testing.T) {
 	}
 }
 
+func TestApplyTextDryRunWithMergeConfigPreservesFlagInNextStep(t *testing.T) {
+	var out strings.Builder
+	report := render.ApplyTextReport{
+		Target:        "codex",
+		Project:       "/repo",
+		Mode:          "dry-run",
+		IncludeGlobal: true,
+		MergeConfig:   true,
+		Filters:       render.ApplyFilterTextReport{Only: []string{"config"}},
+		Changes:       []model.ApplyFileChange{{Path: "/home/.codex/config.toml", Scope: model.ScopeGlobal, Action: model.ApplyActionModify}},
+	}
+
+	if err := render.ApplyText(&out, report); err != nil {
+		t.Fatalf("ApplyText returned error: %v", err)
+	}
+	text := out.String()
+	want := "- Run `agent-canon apply codex --global --merge-config --yes --only config` only after dry-run looks correct."
+	if !strings.Contains(text, want) {
+		t.Fatalf("ApplyText merge-config dry-run output missing %q:\n%s", want, text)
+	}
+}
+
 func TestApplyTextDryRunWithGlobalSkippedSuggestsGlobalDryRunFirst(t *testing.T) {
 	var out strings.Builder
 	report := render.ApplyTextReport{

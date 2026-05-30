@@ -85,6 +85,7 @@ func scanSettingsFile(path string, scope model.Scope, idScope string, targetHint
 	for _, serverName := range serverNames {
 		server := settings.MCPServers[serverName]
 		resource := newResource("mcp:"+idScope+"-"+idSlug(serverName), model.KindMCPServer, scope, settingsPath, targetHint, model.StatusPartial, "manual-mcp-server-review")
+		resource.SourceName = serverName
 
 		envKeys := sortedKeys(server.Env)
 		for _, key := range envKeys {
