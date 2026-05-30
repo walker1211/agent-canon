@@ -34,6 +34,9 @@ func TestPublicReadinessReadmesFollowLanguageAndQuickStartRules(t *testing.T) {
 	for _, rel := range []string{"README.md", "README.zh-CN.md", "README.en.md"} {
 		contents := readFileString(t, filepath.Join(repoRoot, rel))
 		assertSingleLanguageSwitch(t, rel, contents)
+		if strings.Contains(contents, "./docs/") {
+			t.Fatalf("%s links to docs excluded from public release package", rel)
+		}
 	}
 
 	for _, rel := range []string{"README.zh-CN.md", "README.en.md"} {

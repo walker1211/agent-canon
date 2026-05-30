@@ -2,7 +2,7 @@
 
 # agent-canon
 
-`agent-canon` 是一个面向 AI 编程工具配置的语义迁移、同步和冲突解决工具。当前重点是 Claude Code 与 Codex CLI 之间的双向迁移：先扫描和计划，再生成 preview，解决冲突后安全写回，并保留可验证、可回滚的状态。
+`agent-canon` 是一个面向 AI 编程工具配置的语义迁移、readiness 和冲突审查工作流。当前黄金路径是把 Claude Code 语义迁移到 Codex CLI：先扫描和计划，再生成 preview，解决冲突后安全写回，并保留可验证、可回滚的状态。
 
 核心原则：Claude Code 到 Codex CLI 不是整目录复制，而是把项目指令、规则、技能、命令、MCP 配置、权限边界和记忆边界映射到目标工具能理解的配置模型。
 
@@ -74,15 +74,6 @@ agent-canon rollback <apply-id> --dry-run
 - `rollback` 只回滚 manifest 中列出的目标，并在写入前检查漂移。
 - 默认不写全局 Claude/Codex home；全局写入需要 `--global`。
 - Secret 默认 redacted，不应迁移到目标文件、日志或报告。
-
-## 文档
-
-- [文档索引](./docs/README.md)
-- [产品与架构设计](./docs/design.md)
-- [资源映射](./docs/resource-mapping.md)
-- [冲突解决模型](./docs/conflict-resolution.md)
-- [安全与边界](./docs/security-and-scope.md)
-- [路线图](./docs/roadmap.md)
 
 ## 贡献与安全
 

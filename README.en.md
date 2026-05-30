@@ -2,7 +2,7 @@
 
 # agent-canon
 
-`agent-canon` is a git-like semantic migration, sync, and conflict-resolution tool for AI coding agent configurations. Its current focus is two-way migration between Claude Code and Codex CLI: scan and plan first, generate previews, resolve conflicts, apply safely, verify results, and keep rollback state.
+`agent-canon` is a semantic migration, readiness, and conflict-review workflow for AI coding agent configurations. Its current golden path carries Claude Code semantics toward Codex CLI: scan and plan first, generate previews, resolve conflicts, apply safely, verify results, and keep rollback state.
 
 The core idea: Claude Code to Codex CLI is not a directory copy. It maps project instructions, rules, skills, commands, MCP configuration, permission boundaries, and memory boundaries into the target tool's configuration model.
 
@@ -74,15 +74,6 @@ agent-canon rollback <apply-id> --dry-run
 - `rollback` only touches manifest-listed targets and checks drift before writing.
 - Global Claude/Codex homes are not written by default; global writes require `--global`.
 - Secrets are redacted by default and should not be migrated into target files, logs, or reports.
-
-## Documentation
-
-- [Documentation index](./docs/README.md)
-- [Product and architecture design](./docs/design.md)
-- [Resource mapping](./docs/resource-mapping.md)
-- [Conflict resolution model](./docs/conflict-resolution.md)
-- [Security and scope](./docs/security-and-scope.md)
-- [Roadmap](./docs/roadmap.md)
 
 ## Contributing and Security
 
