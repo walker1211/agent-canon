@@ -10,6 +10,7 @@ import (
 
 	applypkg "github.com/zhangyoujun/agent-canon/internal/apply"
 	"github.com/zhangyoujun/agent-canon/internal/cli"
+	"github.com/zhangyoujun/agent-canon/internal/configmerge"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/planner"
 	"github.com/zhangyoujun/agent-canon/internal/render"
@@ -47,6 +48,14 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	if open := openConflictCount(state); open > 0 {
 		return withExitCode(1, "apply codex blocked by %d open conflicts; run \"agent-canon conflicts\" and resolve them first", open)
 	}
+	var mcpResolutions []configmerge.CodexMCPResolution
+	if opts.MergeConfig {
+		learned, err := loadLearnedResolutions(layout, opts.Project)
+		if err != nil {
+			return withExitCode(1, "%w", err)
+		}
+		mcpResolutions = codexMCPResolutionsFromResolvedConfigConflicts(state, learned)
+	}
 
 	scanReport, err := scanner.Scan(scanner.Options{Project: opts.Project, ClaudeHome: opts.ClaudeHome, CodexHome: opts.CodexHome, IncludeMemory: opts.IncludeMemory})
 	if err != nil {
@@ -54,7 +63,7 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	}
 	planReport := planner.Build(scanReport)
 	filters := applypkg.ApplyFilters{Only: opts.ApplyOnly, Exclude: opts.ApplyExclude}
-	codexPlan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global, Filters: filters, MergeConfig: opts.MergeConfig})
+	codexPlan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scanReport, Plan: planReport, IncludeGlobal: opts.Global, Filters: filters, MergeConfig: opts.MergeConfig, MCPResolutions: mcpResolutions})
 	if err != nil {
 		return withExitCode(1, "%w", err)
 	}
@@ -270,6 +279,32 @@ func openConflictCount(state model.SyncStateReport) int {
 		}
 	}
 	return open
+}
+
+func codexMCPResolutionsFromResolvedConfigConflicts(state model.SyncStateReport, learned model.LearnedResolutionReport) []configmerge.CodexMCPResolution {
+	learnedByFingerprint := make(map[string]model.LearnedResolution, len(learned.Resolutions))
+	for _, resolution := range learned.Resolutions {
+		if resolution.ConflictFingerprint == "" {
+			continue
+		}
+		learnedByFingerprint[resolution.ConflictFingerprint] = resolution
+	}
+
+	var resolutions []configmerge.CodexMCPResolution
+	for _, conflict := range state.Conflicts {
+		if conflict.Kind != model.ConflictKindConfigMerge || conflict.Status != model.ConflictStatusResolved || conflict.Fingerprint == "" {
+			continue
+		}
+		resolution, ok := learnedByFingerprint[conflict.Fingerprint]
+		if !ok {
+			continue
+		}
+		resolutions = append(resolutions, configmerge.CodexMCPResolution{
+			Fingerprint: conflict.Fingerprint,
+			Decision:    resolution.Decision,
+		})
+	}
+	return resolutions
 }
 
 func applyFilterReport(filters applypkg.ApplyFilters) render.ApplyFilterTextReport {

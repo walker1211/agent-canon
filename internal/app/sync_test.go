@@ -95,6 +95,194 @@ func TestRunSyncSecondRunGeneratesContentConflict(t *testing.T) {
 	}
 }
 
+func TestRunSyncSecondRunDetectsCodexMCPConfigMergeConflict(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.json"), `{
+  "mcpServers": {
+    "shared": {
+      "command": "claude-shared",
+      "args": ["--from", "claude"]
+    }
+  }
+}
+`)
+	writeFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+args = ["--from", "codex"]
+`)
+	runInitialSync(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("second sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	state := readSyncState(t, filepath.Join(fixture.project, ".agent-canon", "sync-state.json"))
+	conflict := requireConfigMergeConflict(t, state.Conflicts, "shared")
+	if conflict.ID != "conflict-001" || conflict.Status != model.ConflictStatusOpen || !conflict.RequiresUserDecision {
+		t.Fatalf("config conflict = %#v, want first open conflict requiring decision", conflict)
+	}
+	if conflict.Scope != model.ScopeProject || conflict.ResourceID != "mcp:project-shared" {
+		t.Fatalf("config conflict identity = %#v", conflict)
+	}
+	if state.Summary.OpenConflicts != 1 || state.Summary.ResolvedConflicts != 0 {
+		t.Fatalf("summary = %#v, want one open config conflict", state.Summary)
+	}
+	if !strings.Contains(stdout.String(), "Summary: diffs=0 open=1 resolved=0") {
+		t.Fatalf("stdout missing config conflict summary: %q", stdout.String())
+	}
+}
+
+func TestRunSyncIgnoresLocalCodexMCPConfigMergeConflict(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.local.json"), `{
+  "mcpServers": {
+    "shared": {
+      "command": "claude-local-shared",
+      "args": ["--from", "claude-local"]
+    }
+  }
+}
+`)
+	writeFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+args = ["--from", "codex"]
+`)
+	runInitialSync(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("second sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	state := readSyncState(t, filepath.Join(fixture.project, ".agent-canon", "sync-state.json"))
+	if got := countConfigMergeConflicts(state.Conflicts); got != 0 {
+		t.Fatalf("local MCP config merge conflicts = %d, want 0; conflicts=%#v", got, state.Conflicts)
+	}
+	if state.Summary.OpenConflicts != 0 || state.Summary.ResolvedConflicts != 0 {
+		t.Fatalf("summary = %#v, want no local config merge conflict", state.Summary)
+	}
+}
+
+func TestRunSyncPreservesResolvedCodexMCPConfigMergeConflict(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.json"), `{
+  "mcpServers": {
+    "shared": {"command": "claude-shared"}
+  }
+}
+`)
+	writeFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+`)
+	runInitialSync(t, fixture)
+	runInitialSync(t, fixture)
+	syncStatePath := filepath.Join(fixture.project, ".agent-canon", "sync-state.json")
+	state := readSyncState(t, syncStatePath)
+	conflict := requireConfigMergeConflict(t, state.Conflicts, "shared")
+	for i := range state.Conflicts {
+		if state.Conflicts[i].Fingerprint == conflict.Fingerprint {
+			state.Conflicts[i].Status = model.ConflictStatusResolved
+			state.Conflicts[i].RequiresUserDecision = false
+			state.Conflicts[i].ResolutionID = "resolution-config-shared"
+		}
+	}
+	payload, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal sync state: %v", err)
+	}
+	writeFile(t, syncStatePath, string(payload)+"\n")
+
+	runInitialSync(t, fixture)
+	updated := readSyncState(t, syncStatePath)
+	preserved := requireConfigMergeConflict(t, updated.Conflicts, "shared")
+	if preserved.Status != model.ConflictStatusResolved || preserved.RequiresUserDecision || preserved.ResolutionID != "resolution-config-shared" {
+		t.Fatalf("preserved config conflict = %#v", preserved)
+	}
+	if updated.Summary.OpenConflicts != 0 || updated.Summary.ResolvedConflicts != 1 {
+		t.Fatalf("summary = %#v, want resolved config conflict preserved", updated.Summary)
+	}
+}
+
+func TestRunSyncKeepsResolvedConfigConflictIDWhenNewSemanticConflictAppears(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	claudePath := filepath.Join(fixture.project, "CLAUDE.md")
+	codexPath := filepath.Join(fixture.project, "AGENTS.md")
+	writeFile(t, claudePath, "shared base\n")
+	writeFile(t, codexPath, "shared base\n")
+	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.json"), `{
+  "mcpServers": {
+    "shared": {"command": "claude-shared"}
+  }
+}
+`)
+	writeFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+`)
+	runInitialSync(t, fixture)
+	runInitialSync(t, fixture)
+	syncStatePath := filepath.Join(fixture.project, ".agent-canon", "sync-state.json")
+	state := readSyncState(t, syncStatePath)
+	configConflict := requireConfigMergeConflict(t, state.Conflicts, "shared")
+	if configConflict.ID != "conflict-001" {
+		t.Fatalf("initial config conflict ID = %q, want conflict-001", configConflict.ID)
+	}
+	for i := range state.Conflicts {
+		if state.Conflicts[i].Fingerprint == configConflict.Fingerprint {
+			state.Conflicts[i].Status = model.ConflictStatusResolved
+			state.Conflicts[i].RequiresUserDecision = false
+			state.Conflicts[i].ResolutionID = "resolution-config-shared"
+		}
+	}
+	payload, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal sync state: %v", err)
+	}
+	writeFile(t, syncStatePath, string(payload)+"\n")
+	writeFile(t, claudePath, "ours changed\n")
+	writeFile(t, codexPath, "theirs changed\n")
+
+	runInitialSync(t, fixture)
+	updated := readSyncState(t, syncStatePath)
+	preserved := requireConfigMergeConflict(t, updated.Conflicts, "shared")
+	if preserved.ID != "conflict-001" || preserved.Status != model.ConflictStatusResolved || preserved.RequiresUserDecision || preserved.ResolutionID != "resolution-config-shared" {
+		t.Fatalf("preserved config conflict = %#v", preserved)
+	}
+	assertUniqueConflictIDs(t, updated.Conflicts)
+	if updated.Summary.OpenConflicts != 1 || updated.Summary.ResolvedConflicts != 1 {
+		t.Fatalf("summary = %#v, want one open semantic conflict and one resolved config conflict", updated.Summary)
+	}
+}
+
+func TestRunSyncInitialBaseSnapshotSkipsCodexMCPConfigConflictDetection(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.json"), `{
+  "mcpServers": {
+    "shared": {"command": "claude-shared"}
+  }
+}
+`)
+	writeFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+`)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("initial sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	state := readSyncState(t, filepath.Join(fixture.project, ".agent-canon", "sync-state.json"))
+	if got := countConfigMergeConflicts(state.Conflicts); got != 0 {
+		t.Fatalf("initial sync config merge conflicts = %d, want 0; conflicts=%#v", got, state.Conflicts)
+	}
+	if state.Summary.OpenConflicts != 0 || !hasWarning(state.Warnings, "base-snapshots-initialized") {
+		t.Fatalf("initial state summary=%#v warnings=%#v", state.Summary, state.Warnings)
+	}
+}
+
 func TestRunSyncFormatJSONPrintsSyncState(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	var stdout, stderr bytes.Buffer
@@ -229,6 +417,41 @@ func hasWarning(warnings []model.Warning, code string) bool {
 		}
 	}
 	return false
+}
+
+func requireConfigMergeConflict(t *testing.T, conflicts []model.Conflict, serverName string) model.Conflict {
+	t.Helper()
+	for _, conflict := range conflicts {
+		if conflict.Kind == model.ConflictKindConfigMerge && conflict.Details["serverName"] == serverName {
+			return conflict
+		}
+	}
+	t.Fatalf("missing ConfigMergeConflict for MCP server %q in %#v", serverName, conflicts)
+	return model.Conflict{}
+}
+
+func countConfigMergeConflicts(conflicts []model.Conflict) int {
+	count := 0
+	for _, conflict := range conflicts {
+		if conflict.Kind == model.ConflictKindConfigMerge {
+			count++
+		}
+	}
+	return count
+}
+
+func assertUniqueConflictIDs(t *testing.T, conflicts []model.Conflict) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, conflict := range conflicts {
+		if conflict.ID == "" {
+			t.Fatalf("conflict has empty ID: %#v", conflict)
+		}
+		if seen[conflict.ID] {
+			t.Fatalf("duplicate conflict ID %q in %#v", conflict.ID, conflicts)
+		}
+		seen[conflict.ID] = true
+	}
 }
 
 func directorySnapshot(t *testing.T, root string) map[string]string {

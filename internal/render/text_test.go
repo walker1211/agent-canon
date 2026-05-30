@@ -693,6 +693,83 @@ func TestConflictsTextPrintsConflictsAndRedactsWarnings(t *testing.T) {
 	}
 }
 
+func TestConflictsTextPrintsConfigMergeConflictSafeDetailsAndNextSteps(t *testing.T) {
+	var out strings.Builder
+	report := model.SyncStateReport{
+		Source:  "claude",
+		Target:  "codex",
+		Project: "/repo",
+		Conflicts: []model.Conflict{{
+			ID:           "conflict-config-001",
+			Kind:         model.ConflictKindConfigMerge,
+			ResourceID:   "mcp:global-github",
+			ResourceKind: model.KindMCPServer,
+			Scope:        model.ScopeGlobal,
+			Ours: &model.ResourceState{
+				ID:             "mcp:global-github",
+				Kind:           model.KindMCPServer,
+				Scope:          model.ScopeGlobal,
+				Tool:           "claude",
+				Path:           "/home/user/.claude.json",
+				Status:         model.StatusCompatible,
+				Strategy:       "mcp-server-summary",
+				ContentHash:    "sha256:ours",
+				NormalizedText: "MCP server \"github\" normalized configuration summary; sha256=ours",
+			},
+			Theirs: &model.ResourceState{
+				ID:             "mcp:global-github",
+				Kind:           model.KindMCPServer,
+				Scope:          model.ScopeGlobal,
+				Tool:           "codex",
+				Path:           "/home/user/.codex/config.toml",
+				Status:         model.StatusPartial,
+				Strategy:       "manual-mcp-server-review",
+				ContentHash:    "sha256:theirs",
+				NormalizedText: "MCP server \"github\" normalized configuration summary; sha256=theirs",
+			},
+			Status: model.ConflictStatusOpen,
+			Details: map[string]string{
+				"serverName": "github",
+				"targetPath": "/home/user/.codex/config.toml",
+				"sourcePath": "/home/user/.claude.json",
+				"reason":     "existing Codex MCP server differs from Claude-derived MCP server",
+				"command":    "mcp-server --token " + fixtureSecret,
+				"env":        "GITHUB_TOKEN=" + fixtureSecret,
+			},
+		}},
+		Summary: model.SyncSummary{Diffs: 1, OpenConflicts: 1},
+	}
+
+	if err := render.ConflictsText(&out, report); err != nil {
+		t.Fatalf("ConflictsText returned error: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"- conflict-config-001 ConfigMergeConflict mcp:global-github [MCPServer] scope=global",
+		"  why: Codex MCP server already exists with a different configuration",
+		"  server: github",
+		"  target: /home/user/.codex/config.toml",
+		"  source: /home/user/.claude.json",
+		"  reason detail: existing Codex MCP server differs from Claude-derived MCP server",
+		"- Use Claude-derived MCP block: `agent-canon resolve conflict-config-001 --ours`",
+		"- Keep existing Codex MCP block: `agent-canon resolve conflict-config-001 --theirs`",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ConflictsText config conflict output missing %q:\n%s", want, text)
+		}
+	}
+	for _, notWant := range []string{
+		"--manual",
+		"mcp-server --token",
+		"GITHUB_TOKEN=",
+		fixtureSecret,
+	} {
+		if strings.Contains(text, notWant) {
+			t.Fatalf("ConflictsText config conflict output contains unsafe/unwanted %q:\n%s", notWant, text)
+		}
+	}
+}
+
 func TestConflictsTextPrintsSuggestionNextStep(t *testing.T) {
 	var out strings.Builder
 	report := model.SyncStateReport{

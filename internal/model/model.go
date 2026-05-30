@@ -65,11 +65,12 @@ const (
 type ConflictKind string
 
 const (
-	ConflictKindContent    ConflictKind = "ContentConflict"
-	ConflictKindLocation   ConflictKind = "LocationConflict"
-	ConflictKindCapability ConflictKind = "CapabilityConflict"
-	ConflictKindSecurity   ConflictKind = "SecurityConflict"
-	ConflictKindSemantic   ConflictKind = "SemanticConflict"
+	ConflictKindContent     ConflictKind = "ContentConflict"
+	ConflictKindLocation    ConflictKind = "LocationConflict"
+	ConflictKindCapability  ConflictKind = "CapabilityConflict"
+	ConflictKindSecurity    ConflictKind = "SecurityConflict"
+	ConflictKindSemantic    ConflictKind = "SemanticConflict"
+	ConflictKindConfigMerge ConflictKind = "ConfigMergeConflict"
 )
 
 type ConflictStatus string
@@ -212,21 +213,22 @@ type SemanticDiff struct {
 }
 
 type Conflict struct {
-	ID                   string         `json:"id"`
-	Kind                 ConflictKind   `json:"kind"`
-	ResourceID           string         `json:"resourceId"`
-	ResourceKind         ResourceKind   `json:"resourceKind"`
-	Scope                Scope          `json:"scope"`
-	Base                 *ResourceState `json:"base,omitempty"`
-	Ours                 *ResourceState `json:"ours,omitempty"`
-	Theirs               *ResourceState `json:"theirs,omitempty"`
-	Suggestion           string         `json:"suggestion,omitempty"`
-	SuggestionConfidence float64        `json:"suggestionConfidence,omitempty"`
-	RequiresUserDecision bool           `json:"requiresUserDecision"`
-	Status               ConflictStatus `json:"status"`
-	ResolutionID         string         `json:"resolutionId,omitempty"`
-	Fingerprint          string         `json:"fingerprint"`
-	Warnings             []Warning      `json:"warnings"`
+	ID                   string            `json:"id"`
+	Kind                 ConflictKind      `json:"kind"`
+	ResourceID           string            `json:"resourceId"`
+	ResourceKind         ResourceKind      `json:"resourceKind"`
+	Scope                Scope             `json:"scope"`
+	Base                 *ResourceState    `json:"base,omitempty"`
+	Ours                 *ResourceState    `json:"ours,omitempty"`
+	Theirs               *ResourceState    `json:"theirs,omitempty"`
+	Suggestion           string            `json:"suggestion,omitempty"`
+	SuggestionConfidence float64           `json:"suggestionConfidence,omitempty"`
+	RequiresUserDecision bool              `json:"requiresUserDecision"`
+	Status               ConflictStatus    `json:"status"`
+	ResolutionID         string            `json:"resolutionId,omitempty"`
+	Fingerprint          string            `json:"fingerprint"`
+	Warnings             []Warning         `json:"warnings"`
+	Details              map[string]string `json:"details,omitempty"`
 }
 
 type SyncStateReport struct {

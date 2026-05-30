@@ -52,12 +52,20 @@ func runDiff(opts cli.Options, stdout io.Writer) error {
 	warnings := appendWarnings(scanReport.Warnings, current.Claude.Warnings...)
 	warnings = appendWarnings(warnings, current.Codex.Warnings...)
 	warnings = appendWarnings(warnings, current.Canon.Warnings...)
+	conflicts := comparison.Conflicts
+	configConflicts, configWarnings, err := detectCodexMCPConfigConflicts(scanReport)
+	if err != nil {
+		return withExitCode(1, "%w", err)
+	}
+	conflicts = append(conflicts, configConflicts...)
+	conflicts = assignConflictIDsPreservingResolved(conflicts, previous.Conflicts)
+	warnings = appendWarnings(warnings, configWarnings...)
 	report := model.DiffReport{
 		SchemaVersion: model.DiffSchemaVersion,
 		Project:       opts.Project,
 		Target:        opts.DiffTarget,
 		Diffs:         comparison.Diffs,
-		Conflicts:     preserveResolvedConflicts(comparison.Conflicts, previous.Conflicts),
+		Conflicts:     conflicts,
 		Warnings:      warnings,
 	}
 	report.Summary = diffSummary(report)
