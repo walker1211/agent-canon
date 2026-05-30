@@ -44,6 +44,18 @@ agent-canon apply codex --global --merge-config --dry-run --only config --projec
 
 `--merge-config` 只合并 MCP server entries，不会覆盖 model、profile、sandbox、auth、provider 或 feature settings。
 
+## 当前范围
+
+`agent-canon` 当前聚焦 Claude Code 到 Codex CLI 的语义迁移与审查。它支持项目内状态、显式 global home 写回、冲突审查、备份、rollback manifest，以及 MCP server entry 合并。
+
+当前非目标：
+
+- 不做 MCP server entries 之外的任意 TOML merge。
+- 不把 secret 迁移到目标文件、日志或报告中。
+- 不默认写入全局 Claude 或 Codex home。
+- 不迁移完整会话历史。
+- 不承诺 hooks、权限、agents 或 memory 能在不同工具间无损转换。
+
 ## 常用命令
 
 ```sh
