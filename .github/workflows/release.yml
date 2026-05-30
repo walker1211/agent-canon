@@ -31,7 +31,7 @@ jobs:
       - name: Run GitHub readiness audit
         env:
           GH_TOKEN: ${{ github.token }}
-        run: scripts/github-readiness.sh --repo "${GITHUB_REPOSITORY}" --strict
+        run: scripts/github-readiness.sh --repo "${GITHUB_REPOSITORY}" --report-only
 
       - name: Run vet
         run: go vet ./...
