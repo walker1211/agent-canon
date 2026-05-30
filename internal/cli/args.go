@@ -147,7 +147,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	if len(args) == 0 {
 		return Options{}, usageError{message: "missing command", code: 1}
 	}
-	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+	if isHelpFlag(args[0]) || args[0] == "help" {
 		return Options{Command: "help"}, nil
 	}
 
@@ -167,6 +167,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	verifyTarget := ""
 	diffTarget := ""
 	flagArgs := args[1:]
+	if len(flagArgs) > 0 && isHelpFlag(flagArgs[0]) {
+		return Options{Command: "help"}, nil
+	}
 	switch command {
 	case "diff":
 		diffTarget = "codex"
@@ -293,6 +296,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.BoolVar(&resolveAcceptSuggestion, "accept-suggestion", false, "resolve conflict using suggested value")
 	flags.StringVar(&opts.ManualValue, "manual", opts.ManualValue, "resolve conflict using manual value")
 	if err := flags.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return Options{Command: "help"}, nil
+		}
 		return Options{}, usageError{message: err.Error(), code: 1}
 	}
 	if flags.NArg() > 0 {
@@ -408,6 +414,10 @@ func writeLine(writer io.Writer, format string, args ...any) error {
 		return writeOutput(writer, format+"\n")
 	}
 	return writeOutput(writer, fmt.Sprintf(format+"\n", args...))
+}
+
+func isHelpFlag(arg string) bool {
+	return arg == "--help" || arg == "-h"
 }
 
 func flagWasSet(flags *flag.FlagSet, name string) bool {
