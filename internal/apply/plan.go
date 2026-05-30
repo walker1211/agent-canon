@@ -16,11 +16,12 @@ import (
 )
 
 type CodexPlanInput struct {
-	Scan          model.ScanReport
-	Plan          model.PlanReport
-	IncludeGlobal bool
-	Filters       ApplyFilters
-	MergeConfig   bool
+	Scan           model.ScanReport
+	Plan           model.PlanReport
+	IncludeGlobal  bool
+	Filters        ApplyFilters
+	MergeConfig    bool
+	MCPResolutions []configmerge.CodexMCPResolution
 }
 
 type CodexPlan struct {
@@ -54,7 +55,7 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 
 	projectScan := scanForScope(input.Scan, model.ScopeProject)
 	if len(projectScan.Resources) > 0 {
-		changes, warnings, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildCodexPreview, targetPath, input.Filters, roots, changeOptions{MergeCodexConfig: input.MergeConfig})
+		changes, warnings, err := changesForScope(projectScan, planForScan(input.Plan, projectScan), input.Scan.Project, model.ScopeProject, exporter.BuildCodexPreview, targetPath, input.Filters, roots, changeOptions{MergeCodexConfig: input.MergeConfig, CodexMCPResolutions: input.MCPResolutions})
 		if err != nil {
 			return CodexPlan{}, err
 		}
@@ -65,7 +66,7 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 	globalScan := scanForScope(input.Scan, model.ScopeGlobal)
 	if len(globalScan.Resources) > 0 {
 		if input.IncludeGlobal {
-			changes, warnings, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.CodexHome, model.ScopeGlobal, exporter.BuildCodexPreview, targetPath, input.Filters, roots, changeOptions{MergeCodexConfig: input.MergeConfig})
+			changes, warnings, err := changesForScope(globalScan, planForScan(input.Plan, globalScan), input.Scan.CodexHome, model.ScopeGlobal, exporter.BuildCodexPreview, targetPath, input.Filters, roots, changeOptions{MergeCodexConfig: input.MergeConfig, CodexMCPResolutions: input.MCPResolutions})
 			if err != nil {
 				return CodexPlan{}, err
 			}
@@ -122,7 +123,8 @@ type previewBuilder func(model.ScanReport, model.PlanReport) (exporter.CodexPrev
 type targetMapper func(string, model.Scope, string) string
 
 type changeOptions struct {
-	MergeCodexConfig bool
+	MergeCodexConfig    bool
+	CodexMCPResolutions []configmerge.CodexMCPResolution
 }
 
 func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, scope model.Scope, buildPreview previewBuilder, mapTarget targetMapper, filters ApplyFilters, roots FilterRoots, options changeOptions) ([]FileChange, []model.Warning, error) {
@@ -150,7 +152,7 @@ func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, 
 	var warnings []model.Warning
 	for _, candidate := range candidates {
 		if options.MergeCodexConfig && isCodexConfigPreview(candidate.PreviewPath) {
-			merged, include, mergeWarnings, err := mergeCodexConfigCandidate(scan, candidate)
+			merged, include, mergeWarnings, err := mergeCodexConfigCandidate(scan, candidate, options.CodexMCPResolutions)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -178,8 +180,8 @@ func changesForScope(scan model.ScanReport, plan model.PlanReport, root string, 
 	return changes, warnings, nil
 }
 
-func mergeCodexConfigCandidate(scan model.ScanReport, candidate FileChange) (FileChange, bool, []model.Warning, error) {
-	result, err := configmerge.MergeCodexMCP(configmerge.CodexMCPInput{Scan: scan, TargetPath: candidate.Path})
+func mergeCodexConfigCandidate(scan model.ScanReport, candidate FileChange, resolutions []configmerge.CodexMCPResolution) (FileChange, bool, []model.Warning, error) {
+	result, err := configmerge.MergeCodexMCP(configmerge.CodexMCPInput{Scan: scan, TargetPath: candidate.Path, Resolutions: resolutions})
 	if err != nil {
 		return FileChange{}, false, nil, err
 	}

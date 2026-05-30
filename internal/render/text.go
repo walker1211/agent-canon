@@ -318,15 +318,14 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 	if err := out.line("Open conflicts:"); err != nil {
 		return err
 	}
-	firstOpenID := ""
-	firstOpenHasSuggestion := false
-	for _, conflict := range report.Conflicts {
+	var firstOpenConflict *model.Conflict
+	for index := range report.Conflicts {
+		conflict := report.Conflicts[index]
 		if conflict.Status != model.ConflictStatusOpen {
 			continue
 		}
-		if firstOpenID == "" {
-			firstOpenID = conflict.ID
-			firstOpenHasSuggestion = conflict.Suggestion != ""
+		if firstOpenConflict == nil {
+			firstOpenConflict = &report.Conflicts[index]
 		}
 		if err := out.line("- %s %s %s [%s] scope=%s", conflict.ID, conflict.Kind, conflict.ResourceID, conflict.ResourceKind, conflict.Scope); err != nil {
 			return err
@@ -343,13 +342,16 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 				return err
 			}
 		}
+		if err := writeConflictDetails(out, conflict); err != nil {
+			return err
+		}
 		if conflict.Suggestion != "" {
 			if err := out.line("  suggestion: confidence=%.2f", conflict.SuggestionConfidence); err != nil {
 				return err
 			}
 		}
 	}
-	if firstOpenID == "" {
+	if firstOpenConflict == nil {
 		if err := out.line("- none"); err != nil {
 			return err
 		}
@@ -360,8 +362,8 @@ func ConflictsText(writer io.Writer, report model.SyncStateReport) error {
 	if err := out.line("Resolved conflicts: %d", report.Summary.ResolvedConflicts); err != nil {
 		return err
 	}
-	if firstOpenID != "" {
-		if err := writeConflictNextSteps(out, report.Source, report.Target, firstOpenID, firstOpenHasSuggestion); err != nil {
+	if firstOpenConflict != nil {
+		if err := writeConflictNextSteps(out, report.Source, report.Target, *firstOpenConflict); err != nil {
 			return err
 		}
 	}
@@ -380,6 +382,8 @@ func conflictReason(kind model.ConflictKind) string {
 		return "resource location changed"
 	case model.ConflictKindSemantic:
 		return "semantic meaning differs"
+	case model.ConflictKindConfigMerge:
+		return "Codex MCP server already exists with a different configuration"
 	default:
 		return "review both sides before resolving"
 	}
@@ -410,25 +414,64 @@ func conflictHash(hash string) string {
 	return hash
 }
 
-func writeConflictNextSteps(out textWriter, source string, target string, conflictID string, hasSuggestion bool) error {
+func writeConflictDetails(out textWriter, conflict model.Conflict) error {
+	if conflict.Kind != model.ConflictKindConfigMerge {
+		return nil
+	}
+	if err := writeConflictDetail(out, "server", conflict.Details["serverName"]); err != nil {
+		return err
+	}
+	if err := writeConflictDetail(out, "target", conflict.Details["targetPath"]); err != nil {
+		return err
+	}
+	sourcePath := conflict.Details["sourcePath"]
+	if sourcePath != "" && sourcePath != conflict.Details["targetPath"] {
+		if err := writeConflictDetail(out, "source", sourcePath); err != nil {
+			return err
+		}
+	}
+	return writeConflictDetail(out, "reason detail", conflict.Details["reason"])
+}
+
+func writeConflictDetail(out textWriter, label string, value string) error {
+	if value == "" {
+		return nil
+	}
+	redacted, _ := security.RedactContent(value)
+	return out.line("  %s: %s", label, redacted)
+}
+
+func writeConflictNextSteps(out textWriter, source string, target string, conflict model.Conflict) error {
 	if err := out.blank(); err != nil {
 		return err
 	}
 	if err := out.line("Next steps:"); err != nil {
 		return err
 	}
-	if err := out.line("- Keep %s side: `agent-canon resolve %s --ours`", toolLabel(source), conflictID); err != nil {
+	if conflict.Kind == model.ConflictKindConfigMerge {
+		if err := out.line("- Use Claude-derived MCP block: `agent-canon resolve %s --ours`", conflict.ID); err != nil {
+			return err
+		}
+		if err := out.line("- Keep existing Codex MCP block: `agent-canon resolve %s --theirs`", conflict.ID); err != nil {
+			return err
+		}
+		if conflict.Suggestion != "" {
+			return out.line("- Accept suggestion: `agent-canon resolve %s --accept-suggestion`", conflict.ID)
+		}
+		return nil
+	}
+	if err := out.line("- Keep %s side: `agent-canon resolve %s --ours`", toolLabel(source), conflict.ID); err != nil {
 		return err
 	}
-	if err := out.line("- Keep %s side: `agent-canon resolve %s --theirs`", toolLabel(target), conflictID); err != nil {
+	if err := out.line("- Keep %s side: `agent-canon resolve %s --theirs`", toolLabel(target), conflict.ID); err != nil {
 		return err
 	}
-	if hasSuggestion {
-		if err := out.line("- Accept suggestion: `agent-canon resolve %s --accept-suggestion`", conflictID); err != nil {
+	if conflict.Suggestion != "" {
+		if err := out.line("- Accept suggestion: `agent-canon resolve %s --accept-suggestion`", conflict.ID); err != nil {
 			return err
 		}
 	}
-	return out.line("- Write a manual value: `agent-canon resolve %s --manual <value>`", conflictID)
+	return out.line("- Write a manual value: `agent-canon resolve %s --manual <value>`", conflict.ID)
 }
 
 func toolLabel(tool string) string {

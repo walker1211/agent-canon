@@ -70,6 +70,10 @@ func Resolve(input Input) (Result, error) {
 }
 
 func resolutionValue(conflict model.Conflict, decision model.ResolutionDecision, manualValue string) (string, error) {
+	if conflict.Kind == model.ConflictKindConfigMerge && decision == model.ResolutionDecisionManual {
+		return "", fmt.Errorf("manual TOML resolution is not supported for Codex MCP config merge conflicts")
+	}
+
 	switch decision {
 	case model.ResolutionDecisionOurs:
 		return valueFromState("ours", conflict.Ours)

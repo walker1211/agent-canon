@@ -465,6 +465,63 @@ func TestSyncConflictsResolveRoundTripUsesProjectWorkspaceOnly(t *testing.T) {
 	assertFilesUnchanged(t, fixture.codexHome, codexBefore)
 }
 
+func TestSyncConflictsResolveTheirsThenApplyCodexMergeConfigDryRun(t *testing.T) {
+	fixture := tempFixtureWithProjectMCPConfigConflict(t)
+	configPath := filepath.Join(fixture.project, ".codex", "config.toml")
+	beforeConfig := readFileString(t, configPath)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"resolve", "conflict-001", "--theirs", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("resolve exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "resolved conflict-001 with theirs as resolution-001") {
+		t.Fatalf("resolve stdout missing confirmation: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"apply", "codex", "--merge-config", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("apply dry-run exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent-canon apply codex: dry-run") || !strings.Contains(stdout.String(), "modify") || !strings.Contains(stdout.String(), configPath) {
+		t.Fatalf("apply dry-run stdout missing merge plan: %q", stdout.String())
+	}
+	if got := readFileString(t, configPath); got != beforeConfig {
+		t.Fatalf("dry-run modified config: got %q want %q", got, beforeConfig)
+	}
+}
+
+func TestSyncConflictsResolveOursThenApplyCodexMergeConfigYes(t *testing.T) {
+	fixture := tempFixtureWithProjectMCPConfigConflict(t)
+	configPath := filepath.Join(fixture.project, ".codex", "config.toml")
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"resolve", "conflict-001", "--ours", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("resolve exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = app.Run([]string{"apply", "codex", "--merge-config", "--yes", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("apply yes exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	contents := readFileString(t, configPath)
+	if !strings.Contains(contents, "command = \"claude-shared\"") || strings.Contains(contents, "command = \"codex-shared\"") {
+		t.Fatalf("resolved ours apply did not write replacement config:\n%s", contents)
+	}
+	if !strings.Contains(stdout.String(), "agent-canon apply codex: applied") {
+		t.Fatalf("apply stdout missing applied summary: %q", stdout.String())
+	}
+	rollbackEntries, err := os.ReadDir(filepath.Join(fixture.project, ".agent-canon", "rollback"))
+	if err != nil || len(rollbackEntries) == 0 {
+		t.Fatalf("rollback entries = %#v err=%v, want at least one apply manifest", rollbackEntries, err)
+	}
+}
+
 func TestSecretFixtureSyncDoesNotLeakToCLIOutputsOrState(t *testing.T) {
 	fixture := tempFixturePathsFor(t, "secrets")
 	before := snapshotFiles(t, fixture.root)
@@ -924,6 +981,31 @@ func runSyncCommand(t *testing.T, fixture fixturePaths) {
 	if code != 0 {
 		t.Fatalf("sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+}
+
+func tempFixtureWithProjectMCPConfigConflict(t *testing.T) fixturePaths {
+	t.Helper()
+	fixture := tempFixturePathsFor(t, "basic")
+	mustWriteFile(t, filepath.Join(fixture.project, ".claude", "settings.json"), `{
+  "mcpServers": {
+    "shared": {
+      "command": "claude-shared",
+      "args": ["--from", "claude"]
+    }
+  }
+}
+`)
+	mustWriteFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+args = ["--from", "codex"]
+`)
+	runSyncCommand(t, fixture)
+	runSyncCommand(t, fixture)
+	state := readSyncStateReport(t, filepath.Join(fixture.project, ".agent-canon", "sync-state.json"))
+	if state.Summary.OpenConflicts != 1 || len(state.Conflicts) != 1 || state.Conflicts[0].Kind != model.ConflictKindConfigMerge {
+		t.Fatalf("setup state = %#v summary=%#v, want one config merge conflict", state.Conflicts, state.Summary)
+	}
+	return fixture
 }
 
 func readSyncStateReport(t *testing.T, path string) model.SyncStateReport {

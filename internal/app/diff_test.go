@@ -89,6 +89,46 @@ func TestRunDiffReportsOpenConflictWithoutPersistingIt(t *testing.T) {
 	}
 }
 
+func TestRunDiffReportsCodexMCPConfigMergeConflictWithoutPersistingIt(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.json"), `{
+  "mcpServers": {
+    "shared": {"command": "claude-shared"}
+  }
+}
+`)
+	writeFile(t, filepath.Join(fixture.project, ".codex", "config.toml"), `[mcp_servers.shared]
+command = "codex-shared"
+`)
+	runInitialSync(t, fixture)
+	syncStatePath := filepath.Join(fixture.project, ".agent-canon", "sync-state.json")
+	beforeState := readFileText(t, syncStatePath)
+	projectBefore := directorySnapshot(t, fixture.project)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"diff", "codex", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var report model.DiffReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not valid diff JSON: %v\n%s", err, stdout.String())
+	}
+	conflict := requireConfigMergeConflict(t, report.Conflicts, "shared")
+	if conflict.ID != "conflict-001" || conflict.Status != model.ConflictStatusOpen || conflict.Scope != model.ScopeProject {
+		t.Fatalf("config conflict = %#v", conflict)
+	}
+	if report.Summary.Diffs != 0 || report.Summary.OpenConflicts != 1 || report.Summary.ResolvedConflicts != 0 {
+		t.Fatalf("diff summary = %#v, want one open config conflict and no semantic diffs", report.Summary)
+	}
+	if readFileText(t, syncStatePath) != beforeState {
+		t.Fatalf("diff persisted config conflict to sync state")
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) {
+		t.Fatalf("diff modified project files")
+	}
+}
+
 func TestRunDiffDefaultTargetMatchesCodexTarget(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	runInitialSync(t, fixture)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	applypkg "github.com/zhangyoujun/agent-canon/internal/apply"
+	"github.com/zhangyoujun/agent-canon/internal/configmerge"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/planner"
 )
@@ -152,8 +153,50 @@ func TestBuildCodexPlanMergeConfigBlocksSameNameDifferentMCP(t *testing.T) {
 	if err == nil {
 		t.Fatal("BuildCodexPlan returned nil error")
 	}
-	if !strings.Contains(err.Error(), "config-merge-conflict") {
-		t.Fatalf("error = %q, want config-merge-conflict", err)
+	for _, want := range []string{"unresolved config merge conflict", "agent-canon sync", "agent-canon conflicts", "agent-canon resolve"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestBuildCodexPlanMergeConfigUsesMCPResolutions(t *testing.T) {
+	root := t.TempDir()
+	mcp := resource(t, root, model.ScopeGlobal, model.KindMCPServer, "mcp:global-fixture-github", "settings.json", filepath.Join("codex-home", "config.toml"), model.StatusPartial, `{
+		"mcpServers": {
+			"fixture-github": {"command": "fixture-mcp"}
+		}
+	}`)
+	mcp.SourceName = "fixture-github"
+	scan := syntheticScan(t, root, mcp)
+	targetPath := filepath.Join(scan.CodexHome, "config.toml")
+	writeFile(t, targetPath, "[mcp_servers.\"fixture-github\"]\ncommand = \"other-mcp\"\n")
+	analysis, err := configmerge.DetectCodexMCPConflicts(configmerge.CodexMCPAnalysisInput{Scan: scan, TargetPath: targetPath})
+	if err != nil {
+		t.Fatalf("DetectCodexMCPConflicts returned error: %v", err)
+	}
+	if len(analysis.Conflicts) != 1 {
+		t.Fatalf("conflicts = %#v, want one conflict", analysis.Conflicts)
+	}
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{
+		Scan:          scan,
+		Plan:          planner.Build(scan),
+		IncludeGlobal: true,
+		Filters:       applypkg.ApplyFilters{Only: []string{"config"}},
+		MergeConfig:   true,
+		MCPResolutions: []configmerge.CodexMCPResolution{{
+			Fingerprint: analysis.Conflicts[0].Fingerprint,
+			Decision:    model.ResolutionDecisionOurs,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+	change := requireChange(t, plan, targetPath)
+	contents := string(change.Contents)
+	if !strings.Contains(contents, "command = \"fixture-mcp\"") || strings.Contains(contents, "command = \"other-mcp\"") {
+		t.Fatalf("resolved config was not passed into merge planning:\n%s", contents)
 	}
 }
 

@@ -151,12 +151,49 @@ func TestRunResolveAcceptSuggestionRequiresSuggestion(t *testing.T) {
 	assertPathMissing(t, filepath.Join(fixture.project, ".agent-canon", "resolutions", "learned-resolutions.json"))
 }
 
+func TestRunResolveConfigMergeManualReturnsClearErrorWithoutLearnedResolutions(t *testing.T) {
+	fixture := fixtureWithOpenConflict(t)
+	setOpenConflictAsConfigMerge(t, fixture)
+	workspaceBefore := directorySnapshot(t, filepath.Join(fixture.project, ".agent-canon"))
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"resolve", "conflict-001", "--manual", "[mcp_servers.example]\ncommand = \"example\"", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	const want = "manual TOML resolution is not supported for Codex MCP config merge conflicts"
+	if !strings.Contains(stderr.String(), want) {
+		t.Fatalf("stderr = %q, want to contain %q", stderr.String(), want)
+	}
+	if !reflect.DeepEqual(directorySnapshot(t, filepath.Join(fixture.project, ".agent-canon")), workspaceBefore) {
+		t.Fatalf("resolve mutated workspace state after rejected config merge manual resolution")
+	}
+	assertPathMissing(t, filepath.Join(fixture.project, ".agent-canon", "resolutions", "learned-resolutions.json"))
+}
+
 func addSuggestionToOpenConflict(t *testing.T, fixture fixturePaths) {
 	t.Helper()
 	path := filepath.Join(fixture.project, ".agent-canon", "sync-state.json")
 	state := readSyncState(t, path)
 	state.Conflicts[0].Suggestion = "merged suggestion"
 	state.Conflicts[0].SuggestionConfidence = 1
+	writeSyncState(t, path, state)
+}
+
+func setOpenConflictAsConfigMerge(t *testing.T, fixture fixturePaths) {
+	t.Helper()
+	path := filepath.Join(fixture.project, ".agent-canon", "sync-state.json")
+	state := readSyncState(t, path)
+	state.Conflicts[0].Kind = model.ConflictKindConfigMerge
+	state.Conflicts[0].ResourceID = "mcp:project-example"
+	state.Conflicts[0].ResourceKind = model.KindMCPServer
+	state.Conflicts[0].Ours = &model.ResourceState{ID: "mcp:project-example", Kind: model.KindMCPServer, Scope: model.ScopeProject, Tool: "claude", ContentHash: "ours", NormalizedText: "Codex MCP ours summary"}
+	state.Conflicts[0].Theirs = &model.ResourceState{ID: "mcp:project-example", Kind: model.KindMCPServer, Scope: model.ScopeProject, Tool: "codex", ContentHash: "theirs", NormalizedText: "Codex MCP theirs summary"}
+	state.Conflicts[0].Details = map[string]string{
+		"serverName": "example",
+		"targetPath": filepath.Join(fixture.project, ".codex", "config.toml"),
+		"reason":     "same-name Codex MCP server exists with different normalized configuration",
+	}
 	writeSyncState(t, path, state)
 }
 

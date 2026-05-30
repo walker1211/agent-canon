@@ -107,6 +107,102 @@ func TestResolveManualRequiresValue(t *testing.T) {
 	}
 }
 
+func TestResolveConfigMergeOursRecordsDecisionAndFingerprint(t *testing.T) {
+	result, err := resolver.Resolve(resolver.Input{
+		State:      syncState(configMergeConflict("conflict-001")),
+		Learned:    learnedReport(),
+		ConflictID: "conflict-001",
+		Decision:   model.ResolutionDecisionOurs,
+		ResolvedAt: "2026-05-27T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+
+	resolution := result.Learned.Resolutions[0]
+	if resolution.Decision != model.ResolutionDecisionOurs || resolution.ConflictFingerprint != "fingerprint-001" {
+		t.Fatalf("learned resolution = %#v", resolution)
+	}
+	if resolution.Value != "Codex MCP ours summary" {
+		t.Fatalf("resolution value = %q, want safe ours summary", resolution.Value)
+	}
+}
+
+func TestResolveConfigMergeTheirsRecordsDecisionAndFingerprint(t *testing.T) {
+	result, err := resolver.Resolve(resolver.Input{
+		State:      syncState(configMergeConflict("conflict-001")),
+		Learned:    learnedReport(),
+		ConflictID: "conflict-001",
+		Decision:   model.ResolutionDecisionTheirs,
+		ResolvedAt: "2026-05-27T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+
+	resolution := result.Learned.Resolutions[0]
+	if resolution.Decision != model.ResolutionDecisionTheirs || resolution.ConflictFingerprint != "fingerprint-001" {
+		t.Fatalf("learned resolution = %#v", resolution)
+	}
+	if resolution.Value != "Codex MCP theirs summary" {
+		t.Fatalf("resolution value = %q, want safe theirs summary", resolution.Value)
+	}
+}
+
+func TestResolveConfigMergeManualReturnsClearErrorWithoutMutation(t *testing.T) {
+	state := syncState(configMergeConflict("conflict-001"))
+	learned := learnedReport()
+
+	_, err := resolver.Resolve(resolver.Input{
+		State:       state,
+		Learned:     learned,
+		ConflictID:  "conflict-001",
+		Decision:    model.ResolutionDecisionManual,
+		ManualValue: "[mcp_servers.example]\ncommand = \"example\"",
+	})
+	if err == nil {
+		t.Fatalf("Resolve returned nil error")
+	}
+	const want = "manual TOML resolution is not supported for Codex MCP config merge conflicts"
+	if err.Error() != want {
+		t.Fatalf("Resolve error = %q, want %q", err.Error(), want)
+	}
+	if state.Conflicts[0].Status != model.ConflictStatusOpen || state.Conflicts[0].ResolutionID != "" || !state.Conflicts[0].RequiresUserDecision {
+		t.Fatalf("state mutated after rejected manual resolution: %#v", state.Conflicts[0])
+	}
+	if len(learned.Resolutions) != 0 {
+		t.Fatalf("learned resolutions mutated after rejected manual resolution: %#v", learned.Resolutions)
+	}
+}
+
+func TestResolveConfigMergeSuggestionRequiresSuggestion(t *testing.T) {
+	withSuggestion := configMergeConflict("conflict-001")
+	withSuggestion.Suggestion = "Codex MCP suggested summary"
+	result, err := resolver.Resolve(resolver.Input{
+		State:      syncState(withSuggestion),
+		Learned:    learnedReport(),
+		ConflictID: "conflict-001",
+		Decision:   model.ResolutionDecisionSuggestion,
+		ResolvedAt: "2026-05-27T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if got := result.Learned.Resolutions[0].Value; got != "Codex MCP suggested summary" {
+		t.Fatalf("resolution value = %q, want suggestion", got)
+	}
+
+	_, err = resolver.Resolve(resolver.Input{
+		State:      syncState(configMergeConflict("conflict-001")),
+		Learned:    learnedReport(),
+		ConflictID: "conflict-001",
+		Decision:   model.ResolutionDecisionSuggestion,
+	})
+	if err == nil || !strings.Contains(err.Error(), "suggestion") {
+		t.Fatalf("Resolve missing suggestion error = %v", err)
+	}
+}
+
 func TestResolveRedactsSecretResolutionValues(t *testing.T) {
 	const secret = "ghp_agent_canon_fixture_secret_must_not_leak"
 	manual, err := resolver.Resolve(resolver.Input{
@@ -226,5 +322,25 @@ func conflict(id string) model.Conflict {
 		RequiresUserDecision: true,
 		Status:               model.ConflictStatusOpen,
 		Fingerprint:          "fingerprint-001",
+	}
+}
+
+func configMergeConflict(id string) model.Conflict {
+	return model.Conflict{
+		ID:                   id,
+		Kind:                 model.ConflictKindConfigMerge,
+		ResourceID:           "mcp:global-example",
+		ResourceKind:         model.KindMCPServer,
+		Scope:                model.ScopeGlobal,
+		Ours:                 &model.ResourceState{ID: "mcp:global-example", Kind: model.KindMCPServer, Scope: model.ScopeGlobal, Tool: "claude", ContentHash: "ours", NormalizedText: "Codex MCP ours summary"},
+		Theirs:               &model.ResourceState{ID: "mcp:global-example", Kind: model.KindMCPServer, Scope: model.ScopeGlobal, Tool: "codex", ContentHash: "theirs", NormalizedText: "Codex MCP theirs summary"},
+		RequiresUserDecision: true,
+		Status:               model.ConflictStatusOpen,
+		Fingerprint:          "fingerprint-001",
+		Details: map[string]string{
+			"serverName": "example",
+			"targetPath": "/codex-home/config.toml",
+			"reason":     "same-name Codex MCP server exists with different normalized configuration",
+		},
 	}
 }

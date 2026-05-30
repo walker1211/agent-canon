@@ -2,10 +2,13 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"path/filepath"
 	"time"
 
 	"github.com/zhangyoujun/agent-canon/internal/cli"
+	"github.com/zhangyoujun/agent-canon/internal/configmerge"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/render"
 	"github.com/zhangyoujun/agent-canon/internal/scanner"
@@ -62,7 +65,14 @@ func runSync(opts cli.Options, stdout io.Writer) error {
 			Learned:       learned,
 		})
 		diffs = comparison.Diffs
-		conflicts = preserveResolvedConflicts(comparison.Conflicts, previous.Conflicts)
+		conflicts = comparison.Conflicts
+		configConflicts, configWarnings, err := detectCodexMCPConfigConflicts(scanReport)
+		if err != nil {
+			return withExitCode(1, "%w", err)
+		}
+		conflicts = append(conflicts, configConflicts...)
+		conflicts = assignConflictIDsPreservingResolved(conflicts, previous.Conflicts)
+		warnings = appendWarnings(warnings, configWarnings...)
 	}
 
 	state := model.SyncStateReport{
@@ -152,23 +162,89 @@ func loadPreviousSyncState(layout workspace.Layout) (model.SyncStateReport, erro
 	return state, nil
 }
 
-func preserveResolvedConflicts(current []model.Conflict, previous []model.Conflict) []model.Conflict {
+func detectCodexMCPConfigConflicts(scanReport model.ScanReport) ([]model.Conflict, []model.Warning, error) {
+	var conflicts []model.Conflict
+	var warnings []model.Warning
+	for _, targetPath := range []string{
+		filepath.Join(scanReport.Project, ".codex", "config.toml"),
+		filepath.Join(scanReport.CodexHome, "config.toml"),
+	} {
+		targetScan := scanReport
+		targetScan.Resources = mcpResourcesForTarget(scanReport.Resources, targetPath)
+		if len(targetScan.Resources) == 0 {
+			continue
+		}
+		analysis, err := configmerge.DetectCodexMCPConflicts(configmerge.CodexMCPAnalysisInput{Scan: targetScan, TargetPath: targetPath})
+		if err != nil {
+			return nil, nil, err
+		}
+		conflicts = append(conflicts, analysis.Conflicts...)
+		warnings = appendWarnings(warnings, analysis.Warnings...)
+	}
+	return conflicts, warnings, nil
+}
+
+func mcpResourcesForTarget(resources []model.Resource, targetPath string) []model.Resource {
+	cleanTarget := filepath.Clean(targetPath)
+	var out []model.Resource
+	for _, resource := range resources {
+		if resource.Kind != model.KindMCPServer || resource.Scope == model.ScopeLocal || resource.TargetPathHint == "" {
+			continue
+		}
+		if filepath.Clean(resource.TargetPathHint) != cleanTarget {
+			continue
+		}
+		out = append(out, resource)
+	}
+	return out
+}
+
+func assignConflictIDsPreservingResolved(current []model.Conflict, previous []model.Conflict) []model.Conflict {
+	out := append([]model.Conflict{}, current...)
 	resolved := map[string]model.Conflict{}
 	for _, conflict := range previous {
 		if conflict.Status == model.ConflictStatusResolved && conflict.Fingerprint != "" {
 			resolved[conflict.Fingerprint] = conflict
 		}
 	}
-	for i := range current {
-		previousConflict, ok := resolved[current[i].Fingerprint]
+
+	usedIDs := map[string]bool{}
+	preservedID := make([]bool, len(out))
+	for i := range out {
+		previousConflict, ok := resolved[out[i].Fingerprint]
 		if !ok {
 			continue
 		}
-		current[i].Status = model.ConflictStatusResolved
-		current[i].RequiresUserDecision = false
-		current[i].ResolutionID = previousConflict.ResolutionID
+		out[i].Status = model.ConflictStatusResolved
+		out[i].RequiresUserDecision = false
+		out[i].ResolutionID = previousConflict.ResolutionID
+		if previousConflict.ID == "" || usedIDs[previousConflict.ID] {
+			continue
+		}
+		out[i].ID = previousConflict.ID
+		usedIDs[previousConflict.ID] = true
+		preservedID[i] = true
 	}
-	return current
+
+	next := 1
+	for i := range out {
+		if preservedID[i] {
+			continue
+		}
+		out[i].ID = nextConflictID(&next, usedIDs)
+		usedIDs[out[i].ID] = true
+	}
+	return out
+}
+
+func nextConflictID(next *int, used map[string]bool) string {
+	for {
+		id := fmt.Sprintf("conflict-%03d", *next)
+		(*next)++
+		if !used[id] {
+			return id
+		}
+	}
 }
 
 func syncSummary(state model.SyncStateReport) model.SyncSummary {
