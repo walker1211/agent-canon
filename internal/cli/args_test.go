@@ -756,6 +756,11 @@ func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
 		{"help"},
 		{"--help"},
 		{"-h"},
+		{"scan", "--help"},
+		{"scan", "-h"},
+		{"apply", "--help"},
+		{"apply", "codex", "--help"},
+		{"sync", "--help"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr strings.Builder
