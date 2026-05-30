@@ -75,7 +75,7 @@ scripts/github-readiness.sh --repo OWNER/REPO --strict
 
 The audit does not change GitHub settings. It reports Secret scanning, push protection, private vulnerability reporting, default branch protection or rulesets, and CodeQL/code-scanning status with remediation guidance for missing items.
 
-The release preflight runs the strict audit before publishing tag artifacts, so missing readiness settings stop the release before a GitHub Release is created or updated.
+Maintainers should run the strict audit locally before creating a release tag. The release preflight runs the same audit in report-only mode because the GitHub Actions token cannot read every admin-only readiness field.
 
 ## Pull Request Requirements
 
