@@ -56,8 +56,59 @@ func TestBasicPlanCommandFromSpecIsReadOnly(t *testing.T) {
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestRealWorldSanitizedFixturesRemainPublicSafe(t *testing.T) {
+	for _, fixtureName := range realWorldFixtureNames() {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixture := fixturePathsFor(t, fixtureName)
+			for _, dir := range []string{fixture.project, fixture.claudeHome, fixture.codexHome} {
+				assertDirectoryExists(t, dir)
+			}
+
+			var files []string
+			if err := filepath.WalkDir(fixture.root, func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				rel, err := filepath.Rel(fixture.root, path)
+				if err != nil {
+					return err
+				}
+				if rel == "." {
+					return nil
+				}
+				if entry.IsDir() {
+					for _, forbidden := range []string{".agent-canon", "logs", "data", "coverage", "dist", "private"} {
+						if entry.Name() == forbidden {
+							t.Fatalf("%s contains generated or private directory %s", fixtureName, rel)
+						}
+					}
+					return nil
+				}
+
+				ext := filepath.Ext(entry.Name())
+				if ext != ".md" && ext != ".json" && ext != ".toml" {
+					t.Fatalf("%s contains unsupported fixture file type %s", fixtureName, rel)
+				}
+				contents, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				assertNoUnsafePublicMarkers(t, string(contents), rel)
+				files = append(files, rel)
+				return nil
+			}); err != nil {
+				t.Fatalf("walk %s: %v", fixture.root, err)
+			}
+			sort.Strings(files)
+			if len(files) == 0 {
+				t.Fatalf("%s has no fixture files", fixtureName)
+			}
+		})
+	}
+}
+
 func TestRealWorldSanitizedFixturesScanAndPlanAreReadOnly(t *testing.T) {
-	for _, fixtureName := range []string{"real-world-mcp", "real-world-discovery", "real-world-conflict"} {
+	for _, fixtureName := range realWorldFixtureNames() {
 		t.Run(fixtureName, func(t *testing.T) {
 			fixture := tempFixturePathsFor(t, fixtureName)
 			before := snapshotFiles(t, fixture.root)
@@ -1098,6 +1149,10 @@ func fixturePathsFor(t *testing.T, name string) fixturePaths {
 	}
 }
 
+func realWorldFixtureNames() []string {
+	return []string{"real-world-mcp", "real-world-discovery", "real-world-conflict"}
+}
+
 func tempFixturePathsFor(t *testing.T, name string) fixturePaths {
 	t.Helper()
 	repoRoot := filepath.Clean(filepath.Join("..", ".."))
@@ -1289,7 +1344,7 @@ func assertDoesNotContainSecret(t *testing.T, value string, label string) {
 
 func assertNoUnsafePublicMarkers(t *testing.T, value string, label string) {
 	t.Helper()
-	for _, marker := range []string{"ghp_", "sk-", "BEGIN PRIVATE KEY", "/Users/"} {
+	for _, marker := range []string{"/Users/", "ghp_", "sk-", "BEGIN PRIVATE KEY", "GITHUB_TOKEN=", "ANTHROPIC_API_KEY=", "OPENAI_API_KEY=", "PASSWORD=", "SECRET="} {
 		if strings.Contains(value, marker) {
 			t.Fatalf("%s contains unsafe public marker %q", label, marker)
 		}
@@ -1334,6 +1389,17 @@ func assertFileExists(t *testing.T, path string) {
 	}
 	if info.IsDir() {
 		t.Fatalf("%s is a directory, want file", path)
+	}
+}
+
+func assertDirectoryExists(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is a file, want directory", path)
 	}
 }
 
