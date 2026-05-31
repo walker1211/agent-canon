@@ -32,10 +32,11 @@ Verify the downloaded archive with `checksums.txt` from the same release before 
 agent-canon --help
 ```
 
-Use this README for the English guide and `README.zh-CN.md` for the Chinese guide. If you prefer building from source instead of downloading a release archive, run:
+Use this README for the English guide and `README.zh-CN.md` for the Chinese guide. If you prefer a source build instead of downloading a release archive, run the local binary from the repository root with `./agent-canon`:
 
 ```sh
 ./build.sh
+./agent-canon --help
 ```
 
 After reviewing the dry-run output, apply explicitly:

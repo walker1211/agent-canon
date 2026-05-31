@@ -32,10 +32,11 @@ agent-canon --help
 agent-canon --help
 ```
 
-中文指南请继续阅读本文档；英文指南请查看 `README.en.md`。如果不下载 release 归档，也可以从源码构建本地可执行文件：
+中文指南请继续阅读本文档；英文指南请查看 `README.en.md`。如果不下载 release 归档，也可以从源码构建本地可执行文件。源码构建后，在仓库根目录用 `./agent-canon` 运行本地二进制：
 
 ```sh
 ./build.sh
+./agent-canon --help
 ```
 
 确认 dry-run 输出后，可以显式执行写回：
