@@ -76,6 +76,7 @@ agent-canon export claude --out <preview-dir>
 agent-canon compile codex --out <preview-dir>
 agent-canon compile claude --out <preview-dir>
 agent-canon sync claude codex
+agent-canon status
 agent-canon conflicts
 agent-canon resolve <conflict-id> --manual <value>
 agent-canon apply codex --dry-run
@@ -92,7 +93,9 @@ agent-canon rollback <apply-id> --dry-run
 ```sh
 agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon status --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
