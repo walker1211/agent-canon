@@ -56,6 +56,41 @@ func TestBasicPlanCommandFromSpecIsReadOnly(t *testing.T) {
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestReadmeGoldenPathCommandsStayExecutable(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	commands := []string{
+		"agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"agent-canon status --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"agent-canon conflicts --project <repo-root>",
+		"agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+	}
+	for _, rel := range []string{"README.en.md", "README.zh-CN.md"} {
+		contents := readFileString(t, filepath.Join(publicReadinessRepoRoot(), rel))
+		for _, command := range commands {
+			if !strings.Contains(contents, command) {
+				t.Fatalf("%s missing executable README command %q", rel, command)
+			}
+		}
+	}
+
+	beforeReadOnly := snapshotFiles(t, fixture.root)
+	runReadmeCommandSmoke(t, fixture, commands[0])
+	assertFilesUnchanged(t, fixture.root, beforeReadOnly)
+
+	beforeSync := snapshotFiles(t, fixture.root)
+	runReadmeCommandSmoke(t, fixture, commands[1])
+	assertOnlyWorkspaceChanged(t, fixture.root, beforeSync)
+
+	for _, command := range commands[2:] {
+		before := snapshotFiles(t, fixture.root)
+		runReadmeCommandSmoke(t, fixture, command)
+		assertFilesUnchanged(t, fixture.root, before)
+	}
+}
+
 func TestRealWorldSanitizedFixturesRemainPublicSafe(t *testing.T) {
 	for _, fixtureName := range realWorldFixtureNames() {
 		t.Run(fixtureName, func(t *testing.T) {
@@ -1348,6 +1383,72 @@ func runDogfoodAppCommandAllowingFailure(t *testing.T, fixture fixturePaths, arg
 	var stdout, stderr bytes.Buffer
 	code := app.Run(args, fixture.project, fixture.home, &stdout, &stderr)
 	return stdout.String(), stderr.String(), code
+}
+
+func runReadmeCommandSmoke(t *testing.T, fixture fixturePaths, command string) {
+	t.Helper()
+	args, previewDir := readmeCommandArgs(t, fixture, command)
+	var stdout, stderr bytes.Buffer
+	code := app.Run(args, fixture.project, fixture.home, &stdout, &stderr)
+	assertNoUnsafePublicMarkers(t, stdout.String(), command+" stdout")
+	assertNoUnsafePublicMarkers(t, stderr.String(), command+" stderr")
+	if code != 0 {
+		t.Fatalf("%s exit code = %d, want 0; stdout=%q stderr=%q", command, code, stdout.String(), stderr.String())
+	}
+	if previewDir != "" {
+		if len(previewRelativePaths(t, previewDir)) == 0 {
+			t.Fatalf("%s preview %s has no files", command, previewDir)
+		}
+		assertGeneratedFilesDoNotContainUnsafePublicMarkers(t, previewDir)
+	}
+}
+
+func readmeCommandArgs(t *testing.T, fixture fixturePaths, command string) ([]string, string) {
+	t.Helper()
+	fields := strings.Fields(command)
+	if len(fields) == 0 || fields[0] != "agent-canon" {
+		t.Fatalf("README command must start with agent-canon: %q", command)
+	}
+	args := append([]string(nil), fields[1:]...)
+	previewDir := ""
+	for i, arg := range args {
+		switch arg {
+		case "<repo-root>":
+			args[i] = fixture.project
+		case "~/.claude":
+			args[i] = fixture.claudeHome
+		case "~/.codex":
+			args[i] = fixture.codexHome
+		case "<preview-dir>":
+			previewDir = filepath.Join(t.TempDir(), "readme-preview")
+			args[i] = previewDir
+		}
+	}
+	return args, previewDir
+}
+
+func assertOnlyWorkspaceChanged(t *testing.T, root string, before map[string]string) {
+	t.Helper()
+	after := snapshotFiles(t, root)
+	workspaceRoot := filepath.Join("project", ".agent-canon")
+	workspacePrefix := workspaceRoot + string(filepath.Separator)
+	for rel, beforeContents := range before {
+		if rel == snapshotDirKey(workspaceRoot) || strings.HasPrefix(rel, workspacePrefix) {
+			continue
+		}
+		if after[rel] != beforeContents {
+			t.Fatalf("non-workspace fixture file changed: %s", rel)
+		}
+	}
+	for rel := range after {
+		if _, ok := before[rel]; ok {
+			continue
+		}
+		if rel == snapshotDirKey(workspaceRoot) || strings.HasPrefix(rel, workspacePrefix) {
+			continue
+		}
+		t.Fatalf("non-workspace fixture file created: %s", rel)
+	}
 }
 
 func tempFixtureWithProjectMCPConfigConflict(t *testing.T) fixturePaths {
