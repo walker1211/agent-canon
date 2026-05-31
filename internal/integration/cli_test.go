@@ -56,6 +56,41 @@ func TestBasicPlanCommandFromSpecIsReadOnly(t *testing.T) {
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestRealWorldSanitizedFixturesScanAndPlanAreReadOnly(t *testing.T) {
+	for _, fixtureName := range []string{"real-world-mcp", "real-world-discovery", "real-world-conflict"} {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixture := tempFixturePathsFor(t, fixtureName)
+			before := snapshotFiles(t, fixture.root)
+
+			var scanStdout, scanStderr bytes.Buffer
+			scanCode := app.Run([]string{"scan", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &scanStdout, &scanStderr)
+			assertNoUnsafePublicMarkers(t, scanStdout.String(), fixtureName+" scan stdout")
+			assertNoUnsafePublicMarkers(t, scanStderr.String(), fixtureName+" scan stderr")
+			if scanCode != 0 {
+				t.Fatalf("scan exit code = %d, want 0; stdout=%q stderr=%q", scanCode, scanStdout.String(), scanStderr.String())
+			}
+			var scanReport model.ScanReport
+			if err := json.Unmarshal(scanStdout.Bytes(), &scanReport); err != nil {
+				t.Fatalf("scan stdout is not valid JSON: %v\n%s", err, scanStdout.String())
+			}
+
+			var planStdout, planStderr bytes.Buffer
+			planCode := app.Run([]string{"plan", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &planStdout, &planStderr)
+			assertNoUnsafePublicMarkers(t, planStdout.String(), fixtureName+" plan stdout")
+			assertNoUnsafePublicMarkers(t, planStderr.String(), fixtureName+" plan stderr")
+			if planCode != 0 {
+				t.Fatalf("plan exit code = %d, want 0; stdout=%q stderr=%q", planCode, planStdout.String(), planStderr.String())
+			}
+			var planReport model.PlanReport
+			if err := json.Unmarshal(planStdout.Bytes(), &planReport); err != nil {
+				t.Fatalf("plan stdout is not valid JSON: %v\n%s", err, planStdout.String())
+			}
+
+			assertFilesUnchanged(t, fixture.root, before)
+		})
+	}
+}
+
 func TestInvalidDirectionReturnsExitOne(t *testing.T) {
 	fixture := fixturePathsFor(t, "basic")
 	var stdout, stderr bytes.Buffer
@@ -1249,6 +1284,15 @@ func assertDoesNotContainSecret(t *testing.T, value string, label string) {
 	t.Helper()
 	if strings.Contains(value, fixtureSecret) {
 		t.Fatalf("%s leaked fixture secret", label)
+	}
+}
+
+func assertNoUnsafePublicMarkers(t *testing.T, value string, label string) {
+	t.Helper()
+	for _, marker := range []string{"ghp_", "sk-", "BEGIN PRIVATE KEY", "/Users/"} {
+		if strings.Contains(value, marker) {
+			t.Fatalf("%s contains unsafe public marker %q", label, marker)
+		}
 	}
 }
 

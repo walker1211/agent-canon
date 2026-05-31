@@ -1,0 +1,4 @@
+model = "fixture-project-model"
+
+[mcp_servers."project-keep-existing"]
+command = "fixture-project-keep-existing"

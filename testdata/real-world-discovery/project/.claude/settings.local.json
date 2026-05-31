@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fixture-local-cache": {
+      "command": "fixture-project-local-cache",
+      "args": ["--mode", "offline"],
+      "env": {
+        "CACHE_PROFILE": "fixture-project"
+      }
+    }
+  }
+}

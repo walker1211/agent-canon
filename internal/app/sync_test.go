@@ -134,6 +134,29 @@ args = ["--from", "codex"]
 	}
 }
 
+func TestRunSyncRealWorldConflictFixtureKeepsConfigConflictIdentityStable(t *testing.T) {
+	fixture := copiedFixture(t, "real-world-conflict")
+	runInitialSync(t, fixture)
+	runInitialSync(t, fixture)
+	syncStatePath := filepath.Join(fixture.project, ".agent-canon", "sync-state.json")
+
+	state := readSyncState(t, syncStatePath)
+	conflict := requireConfigMergeConflict(t, state.Conflicts, "shared")
+	if conflict.ID != "conflict-001" || conflict.Kind != model.ConflictKindConfigMerge || conflict.ResourceID != "mcp:project-shared" || conflict.Scope != model.ScopeProject || conflict.Status != model.ConflictStatusOpen || !conflict.RequiresUserDecision {
+		t.Fatalf("config conflict = %#v", conflict)
+	}
+	if state.Summary.OpenConflicts != 1 || state.Summary.ResolvedConflicts != 0 {
+		t.Fatalf("summary = %#v, want one open config conflict", state.Summary)
+	}
+
+	runInitialSync(t, fixture)
+	updated := readSyncState(t, syncStatePath)
+	preserved := requireConfigMergeConflict(t, updated.Conflicts, "shared")
+	if preserved.ID != conflict.ID || preserved.Fingerprint != conflict.Fingerprint {
+		t.Fatalf("preserved config conflict = %#v, want ID %q fingerprint %q", preserved, conflict.ID, conflict.Fingerprint)
+	}
+}
+
 func TestRunSyncIgnoresLocalCodexMCPConfigMergeConflict(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	writeFile(t, filepath.Join(fixture.project, ".claude", "settings.local.json"), `{

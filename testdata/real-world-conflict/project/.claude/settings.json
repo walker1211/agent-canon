@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "shared": {
+      "command": "claude-shared",
+      "args": ["--from", "claude"]
+    },
+    "extra": {
+      "command": "claude-extra",
+      "args": ["--stdio"]
+    }
+  }
+}

@@ -24,6 +24,7 @@
 /config.local.*
 /.claude/settings.local.json
 /.codex/config.local.toml
+!testdata/**/settings.local.json
 
 # Data
 /data/

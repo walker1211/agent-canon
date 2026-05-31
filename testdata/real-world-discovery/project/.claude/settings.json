@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": ["Read", "Grep"]
+  },
+  "mcpServers": {
+    "fixture-project-search": {
+      "command": "fixture-project-search",
+      "args": ["--scope", "project"]
+    }
+  }
+}

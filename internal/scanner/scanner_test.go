@@ -326,6 +326,103 @@ func TestScanIncludesMemoryOnlyWhenRequested(t *testing.T) {
 	}
 }
 
+func TestScanRealWorldMCPFixtureDiscoversSanitizedMCPResources(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	fixture := filepath.Join(repoRoot, "testdata", "real-world-mcp")
+
+	report, err := scanner.Scan(scanner.Options{
+		Project:    filepath.Join(fixture, "project"),
+		ClaudeHome: filepath.Join(fixture, "claude-home"),
+		CodexHome:  filepath.Join(fixture, "codex-home"),
+	})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	for _, id := range []string{"config:global-settings", "config:project-settings"} {
+		resource := requireResource(t, report.Resources, id)
+		assertResource(t, resource, model.KindConfig, resource.Scope, model.StatusPartial)
+	}
+	for _, id := range []string{"mcp:global-fixture-browser", "mcp:global-fixture-filesystem", "mcp:project-fixture-project-index"} {
+		resource := requireResource(t, report.Resources, id)
+		assertResource(t, resource, model.KindMCPServer, resource.Scope, model.StatusPartial)
+		if resource.Strategy != "manual-mcp-server-review" {
+			t.Fatalf("%s strategy = %q, want manual-mcp-server-review", id, resource.Strategy)
+		}
+		if !hasWarningCode(resource.Warnings, "existing-codex-target") {
+			t.Fatalf("%s warnings missing existing-codex-target: %#v", id, resource.Warnings)
+		}
+	}
+
+	payload, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("json.Marshal(report) error = %v", err)
+	}
+	assertNoPublicRiskMarkers(t, string(payload), "real-world MCP scan report")
+}
+
+func TestScanRealWorldDiscoveryFixtureCoversCommandsAgentsPluginsRulesMemoryAndLocalSettings(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	fixture := filepath.Join(repoRoot, "testdata", "real-world-discovery")
+	opts := scanner.Options{
+		Project:    filepath.Join(fixture, "project"),
+		ClaudeHome: filepath.Join(fixture, "claude-home"),
+		CodexHome:  filepath.Join(fixture, "codex-home"),
+	}
+
+	report, err := scanner.Scan(opts)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	for _, id := range []string{
+		"instruction:global-claude-md",
+		"instruction:project-claude-md",
+		"command:global-build",
+		"command:project-deploy",
+		"agent:global-reviewer",
+		"agent:project-project-reviewer",
+		"plugin:global-sample-plugin",
+		"skill:global-global-review",
+		"skill:project-project-review",
+		"config:global-settings.local",
+		"config:project-settings.local",
+		"mcp:local-global-fixture-local-cache",
+		"mcp:local-project-fixture-local-cache",
+	} {
+		if !hasResource(report.Resources, id) {
+			t.Fatalf("scan missing %s in %#v", id, report.Resources)
+		}
+	}
+
+	goRule := requireResource(t, report.Resources, "rule:global-go")
+	assertResource(t, goRule, model.KindRule, model.ScopeGlobal, model.StatusPartial)
+	if goRule.Strategy != "review-path-scoped-rule" {
+		t.Fatalf("go rule strategy = %q, want review-path-scoped-rule", goRule.Strategy)
+	}
+	styleRule := requireResource(t, report.Resources, "rule:global-style")
+	assertResource(t, styleRule, model.KindRule, model.ScopeGlobal, model.StatusCompatible)
+	if styleRule.Strategy != "merge-rule-into-agents-md" {
+		t.Fatalf("style rule strategy = %q, want merge-rule-into-agents-md", styleRule.Strategy)
+	}
+	if hasResource(report.Resources, "memory:project-sandbox-MEMORY") || hasResource(report.Resources, "memory:project-sandbox-notes") {
+		t.Fatalf("memory resources present by default: %#v", report.Resources)
+	}
+	if !hasWarningCode(report.Warnings, "existing-codex-memories") {
+		t.Fatalf("report warnings missing existing-codex-memories: %#v", report.Warnings)
+	}
+
+	opts.IncludeMemory = true
+	withMemory, err := scanner.Scan(opts)
+	if err != nil {
+		t.Fatalf("Scan with IncludeMemory returned error: %v", err)
+	}
+	for _, id := range []string{"memory:project-sandbox-MEMORY", "memory:project-sandbox-notes"} {
+		resource := requireResource(t, withMemory.Resources, id)
+		assertResource(t, resource, model.KindMemoryItem, model.ScopeProject, model.StatusPartial)
+	}
+}
+
 func TestScanRedactsMCPEnvSecrets(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", ".."))
 	fixture := filepath.Join(repoRoot, "testdata", "secrets")
@@ -477,6 +574,15 @@ func writeFile(t *testing.T, path string, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func assertNoPublicRiskMarkers(t *testing.T, value string, label string) {
+	t.Helper()
+	for _, marker := range []string{"ghp_", "sk-", "BEGIN PRIVATE KEY"} {
+		if strings.Contains(value, marker) {
+			t.Fatalf("%s contains public-risk marker %q", label, marker)
+		}
 	}
 }
 
