@@ -142,6 +142,72 @@ func TestRealWorldSanitizedFixturesScanAndPlanAreReadOnly(t *testing.T) {
 	}
 }
 
+func TestRealWorldSanitizedFixturesSyncCompileAndDryRunStaySafe(t *testing.T) {
+	for _, fixtureName := range realWorldFixtureNames() {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixture := tempFixturePathsFor(t, fixtureName)
+			var stdout, stderr bytes.Buffer
+
+			code := app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+			assertNoUnsafePublicMarkers(t, stdout.String(), fixtureName+" sync stdout")
+			assertNoUnsafePublicMarkers(t, stderr.String(), fixtureName+" sync stderr")
+			if code != 0 {
+				t.Fatalf("sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if fixtureName == "real-world-conflict" {
+				stdout.Reset()
+				stderr.Reset()
+				code = app.Run([]string{"sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+				assertNoUnsafePublicMarkers(t, stdout.String(), fixtureName+" second sync stdout")
+				assertNoUnsafePublicMarkers(t, stderr.String(), fixtureName+" second sync stderr")
+				if code != 0 {
+					t.Fatalf("second sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+				}
+			}
+			assertGeneratedFilesDoNotContainUnsafePublicMarkers(t, filepath.Join(fixture.project, ".agent-canon"))
+
+			applyArgs := []string{"apply", "codex", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}
+			if fixtureName == "real-world-conflict" {
+				stdout.Reset()
+				stderr.Reset()
+				code = app.Run([]string{"resolve", "conflict-001", "--theirs", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+				assertNoUnsafePublicMarkers(t, stdout.String(), fixtureName+" resolve stdout")
+				assertNoUnsafePublicMarkers(t, stderr.String(), fixtureName+" resolve stderr")
+				if code != 0 {
+					t.Fatalf("resolve exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+				}
+				applyArgs = []string{"apply", "codex", "--merge-config", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}
+			}
+
+			before := snapshotFiles(t, fixture.root)
+			outDir := filepath.Join(t.TempDir(), "compile-codex-preview")
+			stdout.Reset()
+			stderr.Reset()
+			code = app.Run([]string{"compile", "codex", "--out", outDir, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+			assertNoUnsafePublicMarkers(t, stdout.String(), fixtureName+" compile stdout")
+			assertNoUnsafePublicMarkers(t, stderr.String(), fixtureName+" compile stderr")
+			if code != 0 {
+				t.Fatalf("compile exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if len(previewRelativePaths(t, outDir)) == 0 {
+				t.Fatalf("compile preview %s has no files", outDir)
+			}
+			assertGeneratedFilesDoNotContainUnsafePublicMarkers(t, outDir)
+			assertFilesUnchanged(t, fixture.root, before)
+
+			stdout.Reset()
+			stderr.Reset()
+			code = app.Run(applyArgs, fixture.project, fixture.home, &stdout, &stderr)
+			assertNoUnsafePublicMarkers(t, stdout.String(), fixtureName+" apply stdout")
+			assertNoUnsafePublicMarkers(t, stderr.String(), fixtureName+" apply stderr")
+			if code != 0 {
+				t.Fatalf("apply dry-run exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			assertFilesUnchanged(t, fixture.root, before)
+		})
+	}
+}
+
 func TestInvalidDirectionReturnsExitOne(t *testing.T) {
 	fixture := fixturePathsFor(t, "basic")
 	var stdout, stderr bytes.Buffer
@@ -1355,6 +1421,13 @@ func assertGeneratedFilesDoNotContainSecret(t *testing.T, root string) {
 	t.Helper()
 	for _, rel := range previewRelativePaths(t, root) {
 		assertDoesNotContainSecret(t, readFileString(t, filepath.Join(root, rel)), rel)
+	}
+}
+
+func assertGeneratedFilesDoNotContainUnsafePublicMarkers(t *testing.T, root string) {
+	t.Helper()
+	for _, rel := range previewRelativePaths(t, root) {
+		assertNoUnsafePublicMarkers(t, readFileString(t, filepath.Join(root, rel)), rel)
 	}
 }
 
