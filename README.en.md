@@ -85,6 +85,33 @@ agent-canon verify claude
 agent-canon rollback <apply-id> --dry-run
 ```
 
+## Scenario Examples
+
+### Preview a migration without writing targets
+
+```sh
+agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### Review and resolve conflicts before applying
+
+```sh
+agent-canon conflicts --project <repo-root>
+agent-canon resolve <conflict-id> --manual <value> --project <repo-root>
+agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### Inspect global-home changes safely
+
+```sh
+agent-canon apply codex --global --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+Only replace `--dry-run` with `--yes` after reviewing the output. Do not use `--global --yes` unless you intentionally want to write selected global home targets.
+
 ## Write Safety Boundary
 
 `agent-canon` is conservative by default:

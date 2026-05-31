@@ -85,6 +85,33 @@ agent-canon verify claude
 agent-canon rollback <apply-id> --dry-run
 ```
 
+## 场景示例
+
+### 只预览迁移结果
+
+```sh
+agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### 写入前审查并解决冲突
+
+```sh
+agent-canon conflicts --project <repo-root>
+agent-canon resolve <conflict-id> --manual <value> --project <repo-root>
+agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### 安全检查 global home 变更
+
+```sh
+agent-canon apply codex --global --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+只有审查输出后，才把 `--dry-run` 换成 `--yes`。除非明确要写入选定的 global home 目标，否则不要使用 `--global --yes`。
+
 ## 写入安全边界
 
 `agent-canon` 默认保守：

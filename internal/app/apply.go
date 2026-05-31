@@ -41,12 +41,12 @@ func runApplyCodex(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	var state model.SyncStateReport
 	if err := layout.LoadSyncState(&state); err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {
-			return withExitCode(1, "no sync state found; run \"agent-canon sync claude codex\" first")
+			return missingSyncStateError()
 		}
 		return withExitCode(1, "%w", err)
 	}
 	if open := openConflictCount(state); open > 0 {
-		return withExitCode(1, "apply codex blocked by %d open conflicts; run \"agent-canon conflicts\" and resolve them first", open)
+		return openConflictBlockerError("apply codex", open)
 	}
 	var mcpResolutions []configmerge.CodexMCPResolution
 	if opts.MergeConfig {
@@ -127,12 +127,12 @@ func runApplyClaude(opts cli.Options, stdin io.Reader, stdout io.Writer) error {
 	var state model.SyncStateReport
 	if err := layout.LoadSyncState(&state); err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {
-			return withExitCode(1, "no sync state found; run \"agent-canon sync claude codex\" first")
+			return missingSyncStateError()
 		}
 		return withExitCode(1, "%w", err)
 	}
 	if open := openConflictCount(state); open > 0 {
-		return withExitCode(1, "apply claude blocked by %d open conflicts; run \"agent-canon conflicts\" and resolve them first", open)
+		return openConflictBlockerError("apply claude", open)
 	}
 
 	scanReport, err := scanner.Scan(scanner.Options{Project: opts.Project, ClaudeHome: opts.ClaudeHome, CodexHome: opts.CodexHome, IncludeMemory: opts.IncludeMemory})
@@ -258,7 +258,7 @@ func renderApply(stdout io.Writer, report render.ApplyTextReport) error {
 
 func confirmApply(stdin io.Reader, stdout io.Writer) (bool, error) {
 	if stdin == nil {
-		return false, fmt.Errorf("apply confirmation requires stdin; rerun with --yes to skip the prompt")
+		return false, fmt.Errorf("apply confirmation requires stdin; run with --dry-run first, then use --yes only after review")
 	}
 	if _, err := io.WriteString(stdout, "Apply these changes? [y/N]: "); err != nil {
 		return false, fmt.Errorf("write confirmation prompt: %w", err)

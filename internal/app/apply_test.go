@@ -42,8 +42,10 @@ func TestRunApplyCodexBlocksOpenConflicts(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "open conflicts") || !strings.Contains(stderr.String(), "agent-canon conflicts") {
-		t.Fatalf("stderr missing conflict guidance: %q", stderr.String())
+	for _, want := range []string{"1 open conflicts", "agent-canon conflicts", "agent-canon resolve <conflict-id>"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q conflict guidance: %q", want, stderr.String())
+		}
 	}
 	assertFileContents(t, codexPath, "theirs changed\n")
 }
@@ -348,6 +350,23 @@ func TestRunApplyCodexDryRunWithoutMergeConfigIgnoresCorruptLearnedResolutions(t
 	if !equalStringMaps(directorySnapshot(t, fixture.project), projectBefore) {
 		t.Fatalf("dry-run without merge-config modified project")
 	}
+}
+
+func TestRunApplyCodexWithoutStdinExplainsDryRunThenYesReview(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"run with --dry-run first", "use --yes only after review"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr.String())
+		}
+	}
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
 }
 
 func TestRunApplyCodexConfirmationNoRejectsWithoutWrites(t *testing.T) {

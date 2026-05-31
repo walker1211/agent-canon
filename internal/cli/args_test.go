@@ -38,9 +38,10 @@ func TestParseRejectsMissingAndUnknownCommand(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
+		want string
 	}{
-		{name: "missing", args: []string{}},
-		{name: "unknown", args: []string{"unknown"}},
+		{name: "missing", args: []string{}, want: `missing command; run "agent-canon --help"`},
+		{name: "unknown", args: []string{"unknown"}, want: `unknown command "unknown"; run "agent-canon --help"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse(tc.args, root, root)
@@ -49,6 +50,40 @@ func TestParseRejectsMissingAndUnknownCommand(t *testing.T) {
 			}
 			if ExitCode(err) != 1 {
 				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+			if got := err.Error(); got != tc.want {
+				t.Fatalf("error = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTargetErrorsIncludeActionableExamples(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		wants []string
+	}{
+		{name: "missing apply target", args: []string{"apply", "--project", root}, wants: []string{`apply requires target codex or claude`, `agent-canon apply codex --dry-run`, `agent-canon apply claude --dry-run`}},
+		{name: "missing verify target", args: []string{"verify", "--project", root}, wants: []string{`verify requires target codex or claude`, `agent-canon verify codex`, `agent-canon verify claude`}},
+		{name: "missing compile target", args: []string{"compile", "--project", root, "--out", "preview"}, wants: []string{`compile requires target claude or codex`, `agent-canon compile claude --out <dir>`, `agent-canon compile codex --out <dir>`}},
+		{name: "missing export target", args: []string{"export", "--project", root, "--out", "preview"}, wants: []string{`export requires target claude or codex`, `agent-canon export claude --out <dir>`, `agent-canon export codex --out <dir>`}},
+		{name: "missing sync direction", args: []string{"sync", "--project", root}, wants: []string{`sync requires direction claude codex`, `agent-canon sync claude codex`}},
+		{name: "missing rollback ID", args: []string{"rollback", "--project", root}, wants: []string{`rollback requires apply ID`, `.agent-canon/rollback`, `agent-canon rollback <apply-id> --dry-run`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.args, root, root)
+			if err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+			if ExitCode(err) != 1 {
+				t.Fatalf("ExitCode = %d, want 1", ExitCode(err))
+			}
+			for _, want := range tc.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, want to contain %q", err.Error(), want)
+				}
 			}
 		})
 	}

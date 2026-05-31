@@ -61,8 +61,10 @@ func TestRunCompileCodexBlocksOpenConflicts(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "open conflicts") || !strings.Contains(stderr.String(), "agent-canon conflicts") || !strings.Contains(stderr.String(), "agent-canon resolve") {
-		t.Fatalf("stderr missing conflict guidance: %q", stderr.String())
+	for _, want := range []string{"1 open conflicts", "agent-canon conflicts", "agent-canon resolve <conflict-id>"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q conflict guidance: %q", want, stderr.String())
+		}
 	}
 	assertPathMissing(t, outDir)
 }

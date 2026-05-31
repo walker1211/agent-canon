@@ -146,7 +146,7 @@ func ExitCode(err error) int {
 
 func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	if len(args) == 0 {
-		return Options{}, usageError{message: "missing command", code: 1}
+		return Options{}, usageError{message: `missing command; run "agent-canon --help"`, code: 1}
 	}
 	if isHelpFlag(args[0]) || args[0] == "help" {
 		return Options{Command: "help", HelpRequested: true}, nil
@@ -154,7 +154,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 
 	command := args[0]
 	if command != "init" && command != "scan" && command != "status" && command != "diff" && command != "plan" && command != "export" && command != "import" && command != "compile" && command != "sync" && command != "conflicts" && command != "resolve" && command != "apply" && command != "rollback" && command != "verify" {
-		return Options{}, usageError{message: fmt.Sprintf("unknown command %q", command), code: 1}
+		return Options{}, usageError{message: fmt.Sprintf("unknown command %q; run \"agent-canon --help\"", command), code: 1}
 	}
 
 	exportTarget := ""
@@ -183,7 +183,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		}
 	case "export":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "export requires target claude or codex", code: 1}
+			return Options{}, usageError{message: "export requires target claude or codex; examples: agent-canon export claude --out <dir>; agent-canon export codex --out <dir>", code: 1}
 		}
 		exportTarget = flagArgs[0]
 		if exportTarget != "claude" && exportTarget != "codex" {
@@ -201,7 +201,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		flagArgs = flagArgs[1:]
 	case "compile":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "compile requires target claude or codex", code: 1}
+			return Options{}, usageError{message: "compile requires target claude or codex; examples: agent-canon compile claude --out <dir>; agent-canon compile codex --out <dir>", code: 1}
 		}
 		compileTarget = flagArgs[0]
 		if compileTarget != "claude" && compileTarget != "codex" {
@@ -210,7 +210,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		flagArgs = flagArgs[1:]
 	case "sync":
 		if len(flagArgs) < 2 || flagArgs[0] == "" || flagArgs[0][0] == '-' || flagArgs[1] == "" || flagArgs[1][0] == '-' {
-			return Options{}, usageError{message: "sync requires direction claude codex", code: 1}
+			return Options{}, usageError{message: `sync requires direction claude codex; example: agent-canon sync claude codex`, code: 1}
 		}
 		syncSource = flagArgs[0]
 		syncTarget = flagArgs[1]
@@ -226,7 +226,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		flagArgs = flagArgs[1:]
 	case "apply":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "apply requires target codex or claude", code: 1}
+			return Options{}, usageError{message: "apply requires target codex or claude; examples: agent-canon apply codex --dry-run; agent-canon apply claude --dry-run", code: 1}
 		}
 		applyTarget = flagArgs[0]
 		if applyTarget != "codex" && applyTarget != "claude" {
@@ -235,13 +235,13 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		flagArgs = flagArgs[1:]
 	case "rollback":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "rollback requires apply ID", code: 1}
+			return Options{}, usageError{message: "rollback requires apply ID from .agent-canon/rollback; example: agent-canon rollback <apply-id> --dry-run", code: 1}
 		}
 		rollbackID = flagArgs[0]
 		flagArgs = flagArgs[1:]
 	case "verify":
 		if len(flagArgs) == 0 || flagArgs[0] == "" || flagArgs[0][0] == '-' {
-			return Options{}, usageError{message: "verify requires target codex or claude", code: 1}
+			return Options{}, usageError{message: "verify requires target codex or claude; examples: agent-canon verify codex; agent-canon verify claude", code: 1}
 		}
 		verifyTarget = flagArgs[0]
 		if verifyTarget != "codex" && verifyTarget != "claude" {
@@ -351,7 +351,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 			return Options{}, usageError{message: "--format is not supported for export", code: 1}
 		}
 		if opts.Out == "" {
-			return Options{}, usageError{message: fmt.Sprintf("export %s requires --out", opts.ExportTarget), code: 1}
+			return Options{}, usageError{message: fmt.Sprintf("export %s requires --out; example: agent-canon export %s --out <dir>", opts.ExportTarget, opts.ExportTarget), code: 1}
 		}
 	}
 	if opts.Command == "compile" {
@@ -359,7 +359,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 			return Options{}, usageError{message: "--format is not supported for compile", code: 1}
 		}
 		if opts.Out == "" {
-			return Options{}, usageError{message: fmt.Sprintf("compile %s requires --out", opts.CompileTarget), code: 1}
+			return Options{}, usageError{message: fmt.Sprintf("compile %s requires --out; example: agent-canon compile %s --out <dir>", opts.CompileTarget, opts.CompileTarget), code: 1}
 		}
 	}
 	if err := validateApplyFlags(opts, flags); err != nil {

@@ -64,6 +64,10 @@ func TestRunVerifyCodexMalformedConfigExitsOne(t *testing.T) {
 	if !strings.Contains(stdout.String(), "fail codex-config-project") {
 		t.Fatalf("stdout missing failed config check: %q", stdout.String())
 	}
+	want := "verify codex failed with 1 failed checks; see failed checks above, fix the target files or conflicts, then rerun verify"
+	if !strings.Contains(stderr.String(), want) {
+		t.Fatalf("stderr missing failure summary %q: %q", want, stderr.String())
+	}
 }
 
 func TestRunVerifyCodexOpenConflictsExitOne(t *testing.T) {

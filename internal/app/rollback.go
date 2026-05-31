@@ -78,7 +78,7 @@ func renderRollback(stdout io.Writer, report render.RollbackTextReport) error {
 
 func confirmRollback(stdin io.Reader, stdout io.Writer) (bool, error) {
 	if stdin == nil {
-		return false, fmt.Errorf("rollback confirmation requires stdin; rerun with --yes to skip the prompt")
+		return false, fmt.Errorf("rollback confirmation requires stdin; run with --dry-run first, then use --yes only after review")
 	}
 	if _, err := io.WriteString(stdout, "Roll back these changes? [y/N]: "); err != nil {
 		return false, fmt.Errorf("write confirmation prompt: %w", err)

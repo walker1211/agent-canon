@@ -28,6 +28,37 @@ func TestReleaseBinarySmoke(t *testing.T) {
 	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "scan", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
 	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
 
+	beforePlan := snapshotFiles(t, fixture.root)
+	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "plan", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforePlan)
+
+	codexCompilePreview := filepath.Join(t.TempDir(), "compile-codex-preview")
+	beforeCompileCodex := snapshotFiles(t, fixture.root)
+	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "compile", "codex", "--out", codexCompilePreview, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	if len(previewRelativePaths(t, codexCompilePreview)) == 0 {
+		t.Fatalf("compile codex preview %s has no files", codexCompilePreview)
+	}
+	assertFilesUnchanged(t, fixture.root, beforeCompileCodex)
+
+	claudeCompilePreview := filepath.Join(t.TempDir(), "compile-claude-preview")
+	beforeCompileClaude := snapshotFiles(t, fixture.root)
+	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "compile", "claude", "--out", claudeCompilePreview, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	if len(previewRelativePaths(t, claudeCompilePreview)) == 0 {
+		t.Fatalf("compile claude preview %s has no files", claudeCompilePreview)
+	}
+	assertFilesUnchanged(t, fixture.root, beforeCompileClaude)
+
+	beforeGlobalDryRun := snapshotFiles(t, fixture.root)
+	isolatedHomeBeforeGlobalDryRun := snapshotFiles(t, isolatedHome)
+	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "apply", "codex", "--global", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeGlobalDryRun)
+	assertFilesUnchanged(t, isolatedHome, isolatedHomeBeforeGlobalDryRun)
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
+
+	beforeConflicts := snapshotFiles(t, fixture.root)
+	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "conflicts", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeConflicts)
+
 	beforeDryRun := snapshotFiles(t, fixture.root)
 	runReleaseBinarySmokeCommand(t, binaryPath, fixture.project, isolatedHome, "apply", "codex", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
 	assertFilesUnchanged(t, fixture.root, beforeDryRun)
