@@ -116,21 +116,28 @@ func TestRunReturnsExitOneWhenStdoutWriteFails(t *testing.T) {
 }
 
 func TestRunWithIOAcceptsStdinAndPreservesHelpBehavior(t *testing.T) {
-	for _, args := range [][]string{
-		{"help"},
-		{"scan", "--help"},
-		{"apply", "--help"},
-		{"apply", "codex", "--help"},
+	for _, tc := range []struct {
+		args    []string
+		want    string
+		notWant string
+	}{
+		{args: []string{"help"}, want: "agent-canon apply codex"},
+		{args: []string{"scan", "--help"}, want: "agent-canon scan [flags]", notWant: "agent-canon apply codex"},
+		{args: []string{"apply", "--help"}, want: "agent-canon apply codex [flags]", notWant: "agent-canon scan [flags]"},
+		{args: []string{"apply", "codex", "--help"}, want: "--merge-config", notWant: "agent-canon apply claude [flags]"},
 	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
-			code := app.RunWithIO(args, "/definitely/missing/cwd", "/definitely/missing/home", strings.NewReader("yes\n"), &stdout, &stderr)
+			code := app.RunWithIO(tc.args, "/definitely/missing/cwd", "/definitely/missing/home", strings.NewReader("yes\n"), &stdout, &stderr)
 			if code != 0 {
 				t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 			}
-			if !strings.Contains(stdout.String(), "agent-canon apply codex") {
-				t.Fatalf("help output missing apply command: %q", stdout.String())
+			if !strings.Contains(stdout.String(), tc.want) {
+				t.Fatalf("help output missing %q: %q", tc.want, stdout.String())
+			}
+			if tc.notWant != "" && strings.Contains(stdout.String(), tc.notWant) {
+				t.Fatalf("help output contains %q: %q", tc.notWant, stdout.String())
 			}
 			if stderr.String() != "" {
 				t.Fatalf("stderr = %q, want empty", stderr.String())

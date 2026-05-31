@@ -751,53 +751,87 @@ func TestParseRejectsInvalidResolveForms(t *testing.T) {
 	}
 }
 
-func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
-	for _, args := range [][]string{
-		{"help"},
-		{"--help"},
-		{"-h"},
-		{"scan", "--help"},
-		{"scan", "-h"},
-		{"apply", "--help"},
-		{"apply", "codex", "--help"},
-		{"sync", "--help"},
+func TestParsePreservesHelpContextWithoutValidatingPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		args         []string
+		command      string
+		applyTarget  string
+		verifyTarget string
+	}{
+		{name: "help command", args: []string{"help"}, command: "help"},
+		{name: "top help long", args: []string{"--help"}, command: "help"},
+		{name: "top help short", args: []string{"-h"}, command: "help"},
+		{name: "scan long", args: []string{"scan", "--help"}, command: "scan"},
+		{name: "scan short", args: []string{"scan", "-h"}, command: "scan"},
+		{name: "apply command", args: []string{"apply", "--help"}, command: "apply"},
+		{name: "apply target", args: []string{"apply", "codex", "--help"}, command: "apply", applyTarget: "codex"},
+		{name: "verify target", args: []string{"verify", "codex", "--help"}, command: "verify", verifyTarget: "codex"},
+		{name: "sync command", args: []string{"sync", "--help"}, command: "sync"},
 	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := Parse(tc.args, "/definitely/missing/cwd", "/definitely/missing/home")
+			if err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if !opts.HelpRequested {
+				t.Fatal("HelpRequested = false, want true")
+			}
+			if opts.Command != tc.command {
+				t.Fatalf("Command = %q, want %q", opts.Command, tc.command)
+			}
+			if opts.ApplyTarget != tc.applyTarget {
+				t.Fatalf("ApplyTarget = %q, want %q", opts.ApplyTarget, tc.applyTarget)
+			}
+			if opts.VerifyTarget != tc.verifyTarget {
+				t.Fatalf("VerifyTarget = %q, want %q", opts.VerifyTarget, tc.verifyTarget)
+			}
+		})
+	}
+}
+
+func TestParseRejectsUnknownCommandHelp(t *testing.T) {
+	_, err := Parse([]string{"unknown", "--help"}, "/definitely/missing/cwd", "/definitely/missing/home")
+	if err == nil {
+		t.Fatal("Parse returned nil error")
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("error = %q, want unknown command", err)
+	}
+}
+
+func TestRunHelpAliasesDoNotValidatePaths(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		want    []string
+		notWant []string
+	}{
+		{name: "top", args: []string{"--help"}, want: []string{"Write boundary", "agent-canon scan [flags]", "agent-canon apply codex [flags]"}},
+		{name: "scan", args: []string{"scan", "--help"}, want: []string{"agent-canon scan [flags]", "Read-only inventory", "--include-memory"}, notWant: []string{"agent-canon apply codex [flags]"}},
+		{name: "apply", args: []string{"apply", "--help"}, want: []string{"agent-canon apply codex [flags]", "agent-canon apply claude [flags]", "--dry-run"}, notWant: []string{"agent-canon scan [flags]"}},
+		{name: "apply codex", args: []string{"apply", "codex", "--help"}, want: []string{"agent-canon apply codex [flags]", "--merge-config", "--only string"}, notWant: []string{"agent-canon apply claude [flags]"}},
+		{name: "verify codex", args: []string{"verify", "codex", "--help"}, want: []string{"agent-canon verify codex [flags]", "Read-only validation", "--include-memory"}, notWant: []string{"agent-canon verify claude [flags]"}},
+		{name: "sync", args: []string{"sync", "--help"}, want: []string{"agent-canon sync claude codex [flags]", "writes only project .agent-canon", "--format string"}, notWant: []string{"agent-canon apply codex [flags]"}},
+		{name: "export", args: []string{"export", "--help"}, want: []string{"agent-canon export claude --out <dir> [flags]", "agent-canon export codex --out <dir> [flags]", "--out string"}, notWant: []string{"--format string"}},
+		{name: "compile", args: []string{"compile", "--help"}, want: []string{"agent-canon compile claude --out <dir> [flags]", "agent-canon compile codex --out <dir> [flags]", "--out string"}, notWant: []string{"--format string"}},
+		{name: "rollback", args: []string{"rollback", "--help"}, want: []string{"agent-canon rollback <apply-id> [flags]", "--dry-run", "--yes", "--global"}, notWant: []string{"--format string"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr strings.Builder
-			code := Run(args, "/definitely/missing/cwd", "/definitely/missing/home", &stdout, &stderr)
+			code := Run(tc.args, "/definitely/missing/cwd", "/definitely/missing/home", &stdout, &stderr)
 			if code != 0 {
 				t.Fatalf("exit code = %d, want 0", code)
 			}
 			help := stdout.String()
-			for _, want := range []string{
-				"Write boundary",
-				"scan, status, diff, conflicts, verify, and compile validation are read-only",
-				"init writes only project .agent-canon",
-				"agent-canon init [flags]",
-				"agent-canon status [flags]",
-				"agent-canon diff [codex] [flags]",
-				"agent-canon rollback <apply-id> [flags]",
-				"agent-canon export claude [flags]",
-				"agent-canon import claude [flags]",
-				"agent-canon import codex [flags]",
-				"agent-canon compile claude --out <dir> [flags]",
-				"agent-canon compile codex --out <dir> [flags]",
-				"agent-canon apply claude [flags]",
-				"plan --out writes",
-				"export claude/codex --out writes",
-				"compile claude/codex --out writes",
-				"apply claude/codex writes",
-				"allow writes under Claude or Codex home",
-				"merge safe Claude MCP server entries",
-				"sync/resolve write only project .agent-canon",
-				"agent-canon sync claude codex [flags]",
-				"agent-canon conflicts [flags]",
-				"agent-canon resolve <conflict-id>",
-				"agent-canon verify codex [flags]",
-				"agent-canon verify claude [flags]",
-			} {
+			for _, want := range tc.want {
 				if !strings.Contains(help, want) {
 					t.Fatalf("help output missing %q: %q", want, help)
+				}
+			}
+			for _, notWant := range tc.notWant {
+				if strings.Contains(help, notWant) {
+					t.Fatalf("help output contains %q: %q", notWant, help)
 				}
 			}
 			if stderr.String() != "" {

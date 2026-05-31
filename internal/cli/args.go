@@ -78,6 +78,7 @@ Flags:
 
 type Options struct {
 	Command         string
+	HelpRequested   bool
 	ExportTarget    string
 	ImportTarget    string
 	CompileTarget   string
@@ -148,7 +149,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		return Options{}, usageError{message: "missing command", code: 1}
 	}
 	if isHelpFlag(args[0]) || args[0] == "help" {
-		return Options{Command: "help"}, nil
+		return Options{Command: "help", HelpRequested: true}, nil
 	}
 
 	command := args[0]
@@ -168,7 +169,7 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	diffTarget := ""
 	flagArgs := args[1:]
 	if len(flagArgs) > 0 && isHelpFlag(flagArgs[0]) {
-		return Options{Command: "help"}, nil
+		return Options{Command: command, HelpRequested: true}, nil
 	}
 	switch command {
 	case "diff":
@@ -248,6 +249,22 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 		}
 		flagArgs = flagArgs[1:]
 	}
+	if len(flagArgs) > 0 && isHelpFlag(flagArgs[0]) {
+		return Options{
+			Command:       command,
+			HelpRequested: true,
+			ExportTarget:  exportTarget,
+			ImportTarget:  importTarget,
+			CompileTarget: compileTarget,
+			SyncSource:    syncSource,
+			SyncTarget:    syncTarget,
+			ConflictID:    conflictID,
+			ApplyTarget:   applyTarget,
+			RollbackID:    rollbackID,
+			VerifyTarget:  verifyTarget,
+			DiffTarget:    diffTarget,
+		}, nil
+	}
 
 	defaults := Options{
 		Command:       command,
@@ -297,7 +314,8 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	flags.StringVar(&opts.ManualValue, "manual", opts.ManualValue, "resolve conflict using manual value")
 	if err := flags.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return Options{Command: "help"}, nil
+			opts.HelpRequested = true
+			return opts, nil
 		}
 		return Options{}, usageError{message: err.Error(), code: 1}
 	}
@@ -306,6 +324,9 @@ func Parse(args []string, cwd string, homeDir string) (Options, error) {
 	}
 	opts.ApplyOnly = append([]string(nil), applyOnly...)
 	opts.ApplyExclude = append([]string(nil), applyExclude...)
+	if opts.HelpRequested {
+		return opts, nil
+	}
 
 	if opts.From != "claude" || opts.To != "codex" {
 		return Options{}, usageError{message: "agent-canon supports only claude -> codex", code: 1}
@@ -385,8 +406,8 @@ func RunE(args []string, cwd string, homeDir string, stdout io.Writer, stderr io
 	if err != nil {
 		return err
 	}
-	if opts.Command == "help" {
-		return writeOutput(stdout, helpText)
+	if opts.HelpRequested {
+		return writeOutput(stdout, HelpText(opts))
 	}
 	for _, warning := range opts.Warnings {
 		if err := writeLine(stderr, "warning: %s", warning); err != nil {
@@ -400,6 +421,205 @@ func RunE(args []string, cwd string, homeDir string, stdout io.Writer, stderr io
 		return err
 	}
 	return writeLine(stdout, "command execution is handled by the application layer.")
+}
+
+func HelpText(opts Options) string {
+	switch opts.Command {
+	case "", "help":
+		return helpText
+	case "scan":
+		return `agent-canon scan [flags]
+
+Read-only inventory of Claude and Codex resources.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --format string        scan output format: text or json (default "text")
+  --include-memory       include memory indexes and candidates only; does not migrate content
+`
+	case "sync":
+		return `agent-canon sync claude codex [flags]
+
+Sync Claude import state to Codex metadata; writes only project .agent-canon.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --format string        sync output format: text or json (default "text")
+  --include-memory       include memory indexes and candidates only; does not migrate content
+`
+	case "apply":
+		if opts.ApplyTarget == "codex" {
+			return `agent-canon apply codex [flags]
+
+Apply Codex target files after conflict checks, backup, and confirmation.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --dry-run              show planned changes without writing
+  --yes                  skip interactive confirmation
+  --global               allow writes under Claude or Codex home
+  --merge-config         merge safe Claude MCP server entries into Codex config.toml
+  --only string          include only a matching path or group; repeatable
+  --exclude string       exclude a matching path or group; repeatable
+`
+		}
+		if opts.ApplyTarget == "claude" {
+			return `agent-canon apply claude [flags]
+
+Apply Claude target files after conflict checks, backup, and confirmation.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --dry-run              show planned changes without writing
+  --yes                  skip interactive confirmation
+  --global               allow writes under Claude or Codex home
+  --only string          include only a matching path or group; repeatable
+  --exclude string       exclude a matching path or group; repeatable
+`
+		}
+		return `agent-canon apply codex [flags]
+agent-canon apply claude [flags]
+
+Apply target files after conflict checks, backup, and confirmation.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --dry-run              show planned changes without writing
+  --yes                  skip interactive confirmation
+  --global               allow writes under Claude or Codex home
+  --merge-config         apply codex only: merge safe Claude MCP server entries into Codex config.toml
+  --only string          include only a matching path or group; repeatable
+  --exclude string       exclude a matching path or group; repeatable
+`
+	case "verify":
+		if opts.VerifyTarget == "codex" {
+			return `agent-canon verify codex [flags]
+
+Read-only validation of Codex targets, skills, MCP hints, and conflict state.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --format string        verify output format: text or json (default "text")
+  --include-memory       include memory indexes and candidates only; does not migrate content
+`
+		}
+		if opts.VerifyTarget == "claude" {
+			return `agent-canon verify claude [flags]
+
+Read-only validation of Claude targets, settings, and conflict state.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --format string        verify output format: text or json (default "text")
+  --include-memory       include memory indexes and candidates only; does not migrate content
+`
+		}
+		return `agent-canon verify codex [flags]
+agent-canon verify claude [flags]
+
+Read-only validation of target files and conflict state.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --format string        verify output format: text or json (default "text")
+  --include-memory       include memory indexes and candidates only; does not migrate content
+`
+	case "resolve":
+		return `agent-canon resolve <conflict-id> --ours
+agent-canon resolve <conflict-id> --theirs
+agent-canon resolve <conflict-id> --accept-suggestion
+agent-canon resolve <conflict-id> --manual <value>
+
+Resolve one conflict; writes only project .agent-canon.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --ours                 resolve conflict using our value
+  --theirs               resolve conflict using their value
+  --accept-suggestion    resolve conflict using suggested value
+  --manual string        resolve conflict using manual value
+`
+	case "init":
+		return shortCommandHelp("init", "agent-canon init [flags]", "Initialize project .agent-canon workspace metadata.")
+	case "status":
+		return shortCommandHelp("status", "agent-canon status [flags]", "Read-only project .agent-canon workspace status.")
+	case "diff":
+		return shortCommandHelp("diff", "agent-canon diff [codex] [flags]", "Read-only diff from base snapshots to current Claude/Codex state.")
+	case "plan":
+		return shortCommandHelp("plan", "agent-canon plan [flags]", "Read-only migration plan generation except when --out writes a JSON plan file.")
+	case "export":
+		return `agent-canon export claude --out <dir> [flags]
+agent-canon export codex --out <dir> [flags]
+
+Write a Claude or Codex preview directory only when --out is set.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --out string           write preview directory to this path
+`
+	case "import":
+		return shortCommandHelp("import", "agent-canon import claude [flags]\nagent-canon import codex [flags]", "Import current state into project .agent-canon metadata.")
+	case "compile":
+		return `agent-canon compile claude --out <dir> [flags]
+agent-canon compile codex --out <dir> [flags]
+
+Write a Claude or Codex preview directory from existing canon sync state.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --out string           write preview directory to this path
+`
+	case "conflicts":
+		return shortCommandHelp("conflicts", "agent-canon conflicts [flags]", "Read-only conflict listing.")
+	case "rollback":
+		return `agent-canon rollback <apply-id> [flags]
+
+Roll back one apply manifest after drift checks and confirmation.
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --dry-run              show planned rollback changes without writing
+  --yes                  skip rollback confirmation
+  --global               allow rollback writes under Claude or Codex home
+`
+	default:
+		return helpText
+	}
+}
+
+func shortCommandHelp(command string, usage string, summary string) string {
+	return fmt.Sprintf(`%s
+
+%s
+
+Flags:
+  --project string       project directory (default current working directory)
+  --claude-home string   Claude Code home (default ~/.claude)
+  --codex-home string    Codex home (default ~/.codex)
+  --format string        %s output format: text or json (default "text")
+`, usage, summary, command)
 }
 
 func writeOutput(writer io.Writer, text string) error {

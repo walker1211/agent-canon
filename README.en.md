@@ -22,7 +22,17 @@ Show all commands:
 agent-canon --help
 ```
 
-Build a local binary from source:
+## Install and Release Archives
+
+Download the archive for your platform from the GitHub Release. Archives are named `agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz` and include the `agent-canon` binary, `LICENSE`, `README.md`, `README.zh-CN.md`, and `README.en.md`.
+
+Verify the downloaded archive with `checksums.txt` from the same release before running the binary. The first safe command after install is:
+
+```sh
+agent-canon --help
+```
+
+Use this README for the English guide and `README.zh-CN.md` for the Chinese guide. If you prefer building from source instead of downloading a release archive, run:
 
 ```sh
 ./build.sh
