@@ -123,6 +123,32 @@ func TestPublicReadinessReadmesDocumentReleaseInstallPath(t *testing.T) {
 	}
 }
 
+func TestPublicReadinessReadmesDistinguishReleaseAndLocalBuildCommands(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	for _, tc := range []struct {
+		rel              string
+		installHeading   string
+		currentScope     string
+		localBuildMarker string
+	}{
+		{rel: "README.zh-CN.md", installHeading: "## 安装与 Release 归档", currentScope: "当前范围", localBuildMarker: "源码构建"},
+		{rel: "README.en.md", installHeading: "## Install and Release Archives", currentScope: "Current Scope", localBuildMarker: "source build"},
+	} {
+		contents := readFileString(t, filepath.Join(repoRoot, tc.rel))
+		installHeadingIndex := strings.Index(contents, tc.installHeading)
+		currentScopeIndex := strings.Index(contents, tc.currentScope)
+		if installHeadingIndex < 0 || currentScopeIndex < 0 || installHeadingIndex >= currentScopeIndex {
+			t.Fatalf("%s install section is not bounded by expected headings", tc.rel)
+		}
+		installSection := contents[installHeadingIndex:currentScopeIndex]
+		for _, want := range []string{"agent-canon --help", "./build.sh", "./agent-canon --help", tc.localBuildMarker} {
+			if !strings.Contains(installSection, want) {
+				t.Fatalf("%s install section missing local/release command marker %q", tc.rel, want)
+			}
+		}
+	}
+}
+
 func TestPublicReadinessSecurityAndContributingContracts(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	security := readFileString(t, filepath.Join(repoRoot, "SECURITY.md"))
