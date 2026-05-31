@@ -914,6 +914,134 @@ func TestSecretFixtureVerifyDoesNotLeakToCLIOutputsOrState(t *testing.T) {
 	assertFilesUnchanged(t, fixture.root, before)
 }
 
+func TestDogfoodSafeWorkflowUsesOnlyWorkspaceAndPreviewOutputs(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "basic")
+	beforeReadOnly := snapshotFiles(t, fixture.root)
+
+	runDogfoodAppCommand(t, fixture, "scan", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeReadOnly)
+	runDogfoodAppCommand(t, fixture, "plan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeReadOnly)
+
+	exportPreview := filepath.Join(t.TempDir(), "export-codex-preview")
+	runDogfoodAppCommand(t, fixture, "export", "codex", "--out", exportPreview, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	if len(previewRelativePaths(t, exportPreview)) == 0 {
+		t.Fatalf("export preview %s has no files", exportPreview)
+	}
+	assertFilesUnchanged(t, fixture.root, beforeReadOnly)
+
+	beforeSync := snapshotFiles(t, fixture.root)
+	runDogfoodAppCommand(t, fixture, "sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	afterSync := snapshotFiles(t, fixture.root)
+	for rel, beforeContents := range beforeSync {
+		if strings.HasPrefix(rel, filepath.Join("project", ".agent-canon")+string(filepath.Separator)) {
+			continue
+		}
+		if afterSync[rel] != beforeContents {
+			t.Fatalf("sync changed non-workspace fixture file %s", rel)
+		}
+	}
+	for rel := range afterSync {
+		if _, ok := beforeSync[rel]; ok {
+			continue
+		}
+		if strings.HasPrefix(rel, filepath.Join("project", ".agent-canon")+string(filepath.Separator)) || rel == snapshotDirKey(filepath.Join("project", ".agent-canon")) {
+			continue
+		}
+		t.Fatalf("sync created non-workspace fixture file %s", rel)
+	}
+
+	codexCompilePreview := filepath.Join(t.TempDir(), "compile-codex-preview")
+	beforeCompileCodex := snapshotFiles(t, fixture.root)
+	runDogfoodAppCommand(t, fixture, "compile", "codex", "--out", codexCompilePreview, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	if len(previewRelativePaths(t, codexCompilePreview)) == 0 {
+		t.Fatalf("compile codex preview %s has no files", codexCompilePreview)
+	}
+	assertFilesUnchanged(t, fixture.root, beforeCompileCodex)
+
+	claudeCompilePreview := filepath.Join(t.TempDir(), "compile-claude-preview")
+	beforeCompileClaude := snapshotFiles(t, fixture.root)
+	runDogfoodAppCommand(t, fixture, "compile", "claude", "--out", claudeCompilePreview, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	if len(previewRelativePaths(t, claudeCompilePreview)) == 0 {
+		t.Fatalf("compile claude preview %s has no files", claudeCompilePreview)
+	}
+	assertFilesUnchanged(t, fixture.root, beforeCompileClaude)
+
+	beforeDryRun := snapshotFiles(t, fixture.root)
+	runDogfoodAppCommand(t, fixture, "apply", "codex", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeDryRun)
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
+
+	claudeHomeBeforeGlobalDryRun := snapshotFiles(t, fixture.claudeHome)
+	codexHomeBeforeGlobalDryRun := snapshotFiles(t, fixture.codexHome)
+	beforeGlobalDryRun := snapshotFiles(t, fixture.root)
+	runDogfoodAppCommand(t, fixture, "apply", "codex", "--global", "--dry-run", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeGlobalDryRun)
+	assertFilesUnchanged(t, fixture.claudeHome, claudeHomeBeforeGlobalDryRun)
+	assertFilesUnchanged(t, fixture.codexHome, codexHomeBeforeGlobalDryRun)
+	assertPathMissing(t, filepath.Join(fixture.project, "AGENTS.md"))
+
+	beforeVerify := snapshotFiles(t, fixture.root)
+	stdout, stderr, code := runDogfoodAppCommandAllowingFailure(t, fixture, "verify", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertFilesUnchanged(t, fixture.root, beforeVerify)
+	if code != 0 && !strings.Contains(stdout, "agent-canon verify codex") {
+		t.Fatalf("verify codex exit code = %d without controlled report; stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestDogfoodSafeWorkflowDoesNotLeakSecrets(t *testing.T) {
+	fixture := tempFixturePathsFor(t, "secrets")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "scan", args: []string{"scan", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}},
+		{name: "plan", args: []string{"plan", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, code := runDogfoodAppCommandAllowingFailure(t, fixture, tc.args...)
+			assertDoesNotContainSecret(t, stdout, tc.name+" stdout")
+			assertDoesNotContainSecret(t, stderr, tc.name+" stderr")
+			if code != 0 {
+				t.Fatalf("%s exit code = %d, want 0; stdout=%q stderr=%q", tc.name, code, redactSecret(stdout), redactSecret(stderr))
+			}
+		})
+	}
+
+	stdout, stderr, code := runDogfoodAppCommandAllowingFailure(t, fixture, "sync", "claude", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertDoesNotContainSecret(t, stdout, "sync stdout")
+	assertDoesNotContainSecret(t, stderr, "sync stderr")
+	if code != 0 {
+		t.Fatalf("sync exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout), redactSecret(stderr))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, filepath.Join(fixture.project, ".agent-canon"))
+
+	compilePreview := filepath.Join(t.TempDir(), "compile-codex-preview")
+	stdout, stderr, code = runDogfoodAppCommandAllowingFailure(t, fixture, "compile", "codex", "--out", compilePreview, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertDoesNotContainSecret(t, stdout, "compile stdout")
+	assertDoesNotContainSecret(t, stderr, "compile stderr")
+	if code != 0 {
+		t.Fatalf("compile exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout), redactSecret(stderr))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, compilePreview)
+
+	stdout, stderr, code = runDogfoodAppCommandAllowingFailure(t, fixture, "apply", "codex", "--dry-run", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertDoesNotContainSecret(t, stdout, "apply stdout")
+	assertDoesNotContainSecret(t, stderr, "apply stderr")
+	if code != 0 {
+		t.Fatalf("apply exit code = %d, want 0; stdout=%q stderr=%q", code, redactSecret(stdout), redactSecret(stderr))
+	}
+	assertGeneratedFilesDoNotContainSecret(t, filepath.Join(fixture.project, ".agent-canon"))
+
+	stdout, stderr, code = runDogfoodAppCommandAllowingFailure(t, fixture, "verify", "codex", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome)
+	assertDoesNotContainSecret(t, stdout, "verify stdout")
+	assertDoesNotContainSecret(t, stderr, "verify stderr")
+	if code != 0 && !strings.Contains(stdout, "agent-canon verify codex") {
+		t.Fatalf("verify exit code = %d without controlled report; stdout=%q stderr=%q", code, redactSecret(stdout), redactSecret(stderr))
+	}
+}
+
 type fixturePaths struct {
 	home       string
 	root       string
@@ -981,6 +1109,22 @@ func runSyncCommand(t *testing.T, fixture fixturePaths) {
 	if code != 0 {
 		t.Fatalf("sync exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+}
+
+func runDogfoodAppCommand(t *testing.T, fixture fixturePaths, args ...string) string {
+	t.Helper()
+	stdout, stderr, code := runDogfoodAppCommandAllowingFailure(t, fixture, args...)
+	if code != 0 {
+		t.Fatalf("%s exit code = %d, want 0; stdout=%q stderr=%q", strings.Join(args, " "), code, stdout, stderr)
+	}
+	return stdout
+}
+
+func runDogfoodAppCommandAllowingFailure(t *testing.T, fixture fixturePaths, args ...string) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := app.Run(args, fixture.project, fixture.home, &stdout, &stderr)
+	return stdout.String(), stderr.String(), code
 }
 
 func tempFixtureWithProjectMCPConfigConflict(t *testing.T) fixturePaths {

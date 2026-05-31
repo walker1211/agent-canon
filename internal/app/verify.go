@@ -21,7 +21,7 @@ func runVerify(opts cli.Options, stdout io.Writer) error {
 		return withExitCode(1, "%w", err)
 	}
 	if report.Summary.Fail > 0 {
-		return withExitCode(1, "verify %s failed with %d failed checks", opts.VerifyTarget, report.Summary.Fail)
+		return withExitCode(1, "verify %s failed with %d failed checks; see failed checks above, fix the target files or conflicts, then rerun verify", opts.VerifyTarget, report.Summary.Fail)
 	}
 	return nil
 }

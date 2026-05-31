@@ -55,6 +55,48 @@ func TestPublicReadinessReadmesFollowLanguageAndQuickStartRules(t *testing.T) {
 	}
 }
 
+func TestPublicReadinessReadmesDocumentScenarioExamples(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	for _, tc := range []struct {
+		rel     string
+		markers []string
+	}{
+		{
+			rel: "README.en.md",
+			markers: []string{
+				"## Scenario Examples",
+				"Preview a migration without writing targets",
+				"Review and resolve conflicts before applying",
+				"Inspect global-home changes safely",
+				"agent-canon compile codex --out <preview-dir>",
+				"agent-canon apply codex --global --dry-run --only config",
+				"Only replace `--dry-run` with `--yes` after reviewing the output",
+				"Do not use `--global --yes` unless you intentionally want to write selected global home targets",
+			},
+		},
+		{
+			rel: "README.zh-CN.md",
+			markers: []string{
+				"## 场景示例",
+				"只预览迁移结果",
+				"解决冲突",
+				"安全检查 global home",
+				"agent-canon compile codex --out <preview-dir>",
+				"agent-canon apply codex --global --dry-run --only config",
+				"只有审查输出后，才把 `--dry-run` 换成 `--yes`",
+				"否则不要使用 `--global --yes`",
+			},
+		},
+	} {
+		contents := readFileString(t, filepath.Join(repoRoot, tc.rel))
+		for _, marker := range tc.markers {
+			if !strings.Contains(contents, marker) {
+				t.Fatalf("%s scenario examples missing marker %q", tc.rel, marker)
+			}
+		}
+	}
+}
+
 func TestPublicReadinessReadmesDocumentReleaseInstallPath(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	for _, tc := range []struct {

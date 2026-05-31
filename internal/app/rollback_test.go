@@ -95,6 +95,26 @@ func TestRunRollbackModifyRestoresBackupContents(t *testing.T) {
 	assertFileContents(t, agentsPath, "old agents\n")
 }
 
+func TestRunRollbackWithoutStdinExplainsDryRunThenYesReview(t *testing.T) {
+	fixture := copiedFixture(t, "basic")
+	runInitialSync(t, fixture)
+	applyID := runApplyCodexYes(t, fixture)
+	agentsPath := filepath.Join(fixture.project, "AGENTS.md")
+	before := readFileText(t, agentsPath)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"rollback", applyID, "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"run with --dry-run first", "use --yes only after review"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr.String())
+		}
+	}
+	assertFileContents(t, agentsPath, before)
+}
+
 func TestRunRollbackConfirmationNoCancelsWithoutWrites(t *testing.T) {
 	fixture := copiedFixture(t, "basic")
 	runInitialSync(t, fixture)

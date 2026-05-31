@@ -47,7 +47,7 @@ func runCompilePreview(opts cli.Options, stdout io.Writer, target string, buildP
 		return withExitCode(1, "%w", err)
 	}
 	if open := openConflictCount(state); open > 0 {
-		return withExitCode(1, "compile %s blocked by %d open conflicts; run \"agent-canon conflicts\" and \"agent-canon resolve\" first", target, open)
+		return openConflictBlockerError("compile "+target, open)
 	}
 	if err := validateExportOutputRoot(opts); err != nil {
 		return withExitCode(1, "%w", err)
