@@ -22,7 +22,17 @@ agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude 
 agent-canon --help
 ```
 
-从源码构建本地可执行文件：
+## 安装与 Release 归档
+
+请从 GitHub Release 下载对应平台的归档。归档命名为 `agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz`，包含 `agent-canon` 可执行文件、`LICENSE`、`README.md`、`README.zh-CN.md` 和 `README.en.md`。
+
+运行前，请使用同一 release 中的 `checksums.txt` 校验下载的归档。安装后的第一个安全命令是：
+
+```sh
+agent-canon --help
+```
+
+中文指南请继续阅读本文档；英文指南请查看 `README.en.md`。如果不下载 release 归档，也可以从源码构建本地可执行文件：
 
 ```sh
 ./build.sh

@@ -34,8 +34,11 @@ func RunEWithIO(args []string, cwd string, homeDir string, stdin io.Reader, stdo
 	if err != nil {
 		return withExitCode(cli.ExitCode(err), "%w", err)
 	}
-	if opts.Command == "help" {
-		return cli.RunE(args, cwd, homeDir, stdout, stderr)
+	if opts.HelpRequested {
+		if _, err := io.WriteString(stdout, cli.HelpText(opts)); err != nil {
+			return withExitCode(1, "write output: %w", err)
+		}
+		return nil
 	}
 	for _, warning := range opts.Warnings {
 		if err := writeLine(stderr, "warning: %s", warning); err != nil {

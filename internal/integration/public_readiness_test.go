@@ -55,6 +55,32 @@ func TestPublicReadinessReadmesFollowLanguageAndQuickStartRules(t *testing.T) {
 	}
 }
 
+func TestPublicReadinessReadmesDocumentReleaseInstallPath(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	for _, tc := range []struct {
+		rel            string
+		installHeading string
+		currentScope   string
+	}{
+		{rel: "README.zh-CN.md", installHeading: "## 安装与 Release 归档", currentScope: "当前范围"},
+		{rel: "README.en.md", installHeading: "## Install and Release Archives", currentScope: "Current Scope"},
+	} {
+		contents := readFileString(t, filepath.Join(repoRoot, tc.rel))
+		quickStartIndex := strings.Index(contents, "## Quick Start")
+		installHeadingIndex := strings.Index(contents, tc.installHeading)
+		currentScopeIndex := strings.Index(contents, tc.currentScope)
+		if quickStartIndex < 0 || installHeadingIndex < 0 || currentScopeIndex < 0 || !(quickStartIndex < installHeadingIndex && installHeadingIndex < currentScopeIndex) {
+			t.Fatalf("%s must document release archive install guidance after Quick Start and before Current Scope", tc.rel)
+		}
+		installSection := contents[installHeadingIndex:currentScopeIndex]
+		for _, want := range []string{"agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz", "checksums.txt", "README.zh-CN.md", "README.en.md", "LICENSE", "agent-canon --help"} {
+			if !strings.Contains(installSection, want) {
+				t.Fatalf("%s install section missing release install guidance marker %q", tc.rel, want)
+			}
+		}
+	}
+}
+
 func TestPublicReadinessSecurityAndContributingContracts(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
 	security := readFileString(t, filepath.Join(repoRoot, "SECURITY.md"))
@@ -278,6 +304,24 @@ func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 		if !strings.Contains(release, want) {
 			t.Fatalf("release.yml missing %q", want)
 		}
+	}
+	for _, want := range []string{
+		"release-notes.md",
+		"agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz",
+		"Verify the downloaded archive with `checksums.txt`",
+		"agent-canon --help",
+		"README.en.md",
+		"README.zh-CN.md",
+		"gh release edit",
+		"--notes-file dist/release-notes.md",
+		"--repo \"${GITHUB_REPOSITORY}\"",
+	} {
+		if !strings.Contains(release, want) {
+			t.Fatalf("release.yml missing release note marker %q", want)
+		}
+	}
+	if strings.Contains(release, "--notes \"Release ${GITHUB_REF_NAME}\"") {
+		t.Fatalf("release.yml still uses placeholder release notes")
 	}
 }
 
