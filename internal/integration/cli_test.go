@@ -208,6 +208,73 @@ func TestRealWorldSanitizedFixturesSyncCompileAndDryRunStaySafe(t *testing.T) {
 	}
 }
 
+func TestRealWorldSanitizedFixturesStatusConflictsAndVerifyAreReadOnly(t *testing.T) {
+	for _, fixtureName := range realWorldFixtureNames() {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixture := tempFixturePathsFor(t, fixtureName)
+			runSyncCommand(t, fixture)
+			if fixtureName == "real-world-conflict" {
+				runSyncCommand(t, fixture)
+			}
+			expectedOpenConflicts := 0
+			expectedVerifyCode := 0
+			if fixtureName == "real-world-conflict" {
+				expectedOpenConflicts = 1
+				expectedVerifyCode = 1
+			}
+			before := snapshotFiles(t, fixture.root)
+
+			var statusStdout, statusStderr bytes.Buffer
+			statusCode := app.Run([]string{"status", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &statusStdout, &statusStderr)
+			assertNoUnsafePublicMarkers(t, statusStdout.String(), fixtureName+" status stdout")
+			assertNoUnsafePublicMarkers(t, statusStderr.String(), fixtureName+" status stderr")
+			if statusCode != 0 {
+				t.Fatalf("status exit code = %d, want 0; stdout=%q stderr=%q", statusCode, statusStdout.String(), statusStderr.String())
+			}
+			var statusReport model.StatusReport
+			if err := json.Unmarshal(statusStdout.Bytes(), &statusReport); err != nil {
+				t.Fatalf("status stdout is not valid JSON: %v\n%s", err, statusStdout.String())
+			}
+			if !statusReport.Summary.HasSyncState || statusReport.Summary.OpenConflicts != expectedOpenConflicts {
+				t.Fatalf("status summary = %#v, want open conflicts %d", statusReport.Summary, expectedOpenConflicts)
+			}
+			assertFilesUnchanged(t, fixture.root, before)
+
+			var conflictsStdout, conflictsStderr bytes.Buffer
+			conflictsCode := app.Run([]string{"conflicts", "--format", "json", "--project", fixture.project}, fixture.project, fixture.home, &conflictsStdout, &conflictsStderr)
+			assertNoUnsafePublicMarkers(t, conflictsStdout.String(), fixtureName+" conflicts stdout")
+			assertNoUnsafePublicMarkers(t, conflictsStderr.String(), fixtureName+" conflicts stderr")
+			if conflictsCode != 0 {
+				t.Fatalf("conflicts exit code = %d, want 0; stdout=%q stderr=%q", conflictsCode, conflictsStdout.String(), conflictsStderr.String())
+			}
+			var conflictsReport model.SyncStateReport
+			if err := json.Unmarshal(conflictsStdout.Bytes(), &conflictsReport); err != nil {
+				t.Fatalf("conflicts stdout is not valid JSON: %v\n%s", err, conflictsStdout.String())
+			}
+			if conflictsReport.Summary.OpenConflicts != expectedOpenConflicts {
+				t.Fatalf("conflicts summary = %#v, want open conflicts %d", conflictsReport.Summary, expectedOpenConflicts)
+			}
+			assertFilesUnchanged(t, fixture.root, before)
+
+			var verifyStdout, verifyStderr bytes.Buffer
+			verifyCode := app.Run([]string{"verify", "codex", "--format", "json", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &verifyStdout, &verifyStderr)
+			assertNoUnsafePublicMarkers(t, verifyStdout.String(), fixtureName+" verify stdout")
+			assertNoUnsafePublicMarkers(t, verifyStderr.String(), fixtureName+" verify stderr")
+			if verifyCode != expectedVerifyCode {
+				t.Fatalf("verify exit code = %d, want %d; stdout=%q stderr=%q", verifyCode, expectedVerifyCode, verifyStdout.String(), verifyStderr.String())
+			}
+			var verifyReport model.VerifyReport
+			if err := json.Unmarshal(verifyStdout.Bytes(), &verifyReport); err != nil {
+				t.Fatalf("verify stdout is not valid JSON: %v\n%s", err, verifyStdout.String())
+			}
+			if verifyReport.Target != "codex" || (fixtureName == "real-world-conflict" && verifyReport.Summary.Fail == 0) {
+				t.Fatalf("verify report = %#v", verifyReport)
+			}
+			assertFilesUnchanged(t, fixture.root, before)
+		})
+	}
+}
+
 func TestInvalidDirectionReturnsExitOne(t *testing.T) {
 	fixture := fixturePathsFor(t, "basic")
 	var stdout, stderr bytes.Buffer
