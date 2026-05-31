@@ -59,13 +59,13 @@ func TestBasicPlanCommandFromSpecIsReadOnly(t *testing.T) {
 func TestReadmeGoldenPathCommandsStayExecutable(t *testing.T) {
 	fixture := tempFixturePathsFor(t, "basic")
 	commands := []string{
-		"agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
-		"agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
-		"agent-canon status --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
-		"agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
-		"agent-canon conflicts --project <repo-root>",
-		"agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
-		"agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"./agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"./agent-canon status --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"./agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"./agent-canon conflicts --project <repo-root>",
+		"./agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
+		"./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
 	}
 	for _, rel := range []string{"README.en.md", "README.zh-CN.md"} {
 		contents := readFileString(t, filepath.Join(publicReadinessRepoRoot(), rel))
@@ -1406,8 +1406,8 @@ func runReadmeCommandSmoke(t *testing.T, fixture fixturePaths, command string) {
 func readmeCommandArgs(t *testing.T, fixture fixturePaths, command string) ([]string, string) {
 	t.Helper()
 	fields := strings.Fields(command)
-	if len(fields) == 0 || fields[0] != "agent-canon" {
-		t.Fatalf("README command must start with agent-canon: %q", command)
+	if len(fields) == 0 || (fields[0] != "agent-canon" && fields[0] != "./agent-canon") {
+		t.Fatalf("README command must start with agent-canon or ./agent-canon: %q", command)
 	}
 	args := append([]string(nil), fields[1:]...)
 	previewDir := ""
