@@ -1,0 +1,8 @@
+model = "fixture-project-model"
+
+[mcp_servers.shared]
+command = "codex-shared"
+args = ["--from", "codex"]
+
+[mcp_servers."keep-existing"]
+command = "fixture-keep-existing"

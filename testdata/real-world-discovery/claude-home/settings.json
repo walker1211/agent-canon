@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": ["Read", "Bash(go test ./...)"]
+  },
+  "mcpServers": {
+    "fixture-global-search": {
+      "command": "fixture-global-search",
+      "args": ["--mode", "readonly"]
+    }
+  }
+}

@@ -208,6 +208,57 @@ func TestRunApplyCodexGlobalYesMergeConfigPreservesUserConfig(t *testing.T) {
 	}
 }
 
+func TestRunApplyCodexRealWorldConflictFixtureRespectsResolvedConfigOnlyApply(t *testing.T) {
+	fixture := copiedFixture(t, "real-world-conflict")
+	runInitialSync(t, fixture)
+	runInitialSync(t, fixture)
+	resolveConflict(t, fixture, "--theirs")
+	configPath := filepath.Join(fixture.project, ".codex", "config.toml")
+	agentsBefore := readFileText(t, filepath.Join(fixture.project, "AGENTS.md"))
+	claudeBefore := readFileText(t, filepath.Join(fixture.project, "CLAUDE.md"))
+	claudeHomeBefore := directorySnapshot(t, fixture.claudeHome)
+	codexHomeBefore := directorySnapshot(t, fixture.codexHome)
+	var stdout, stderr bytes.Buffer
+
+	code := app.Run([]string{"apply", "codex", "--merge-config", "--yes", "--only", "config", "--project", fixture.project, "--claude-home", fixture.claudeHome, "--codex-home", fixture.codexHome}, fixture.project, fixture.home, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	contents := readFileText(t, configPath)
+	for _, want := range []string{
+		"model = \"fixture-project-model\"",
+		"[mcp_servers.shared]",
+		"command = \"codex-shared\"",
+		"[mcp_servers.\"keep-existing\"]",
+		"[mcp_servers.\"extra\"]",
+		"command = \"claude-extra\"",
+	} {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("config missing %q:\n%s", want, contents)
+		}
+	}
+	if strings.Contains(contents, "command = \"claude-shared\"") {
+		t.Fatalf("config contains replaced shared server:\n%s", contents)
+	}
+	assertFileContents(t, filepath.Join(fixture.project, "AGENTS.md"), agentsBefore)
+	assertFileContents(t, filepath.Join(fixture.project, "CLAUDE.md"), claudeBefore)
+	if !equalStringMaps(directorySnapshot(t, fixture.claudeHome), claudeHomeBefore) {
+		t.Fatalf("apply modified Claude home")
+	}
+	if !equalStringMaps(directorySnapshot(t, fixture.codexHome), codexHomeBefore) {
+		t.Fatalf("apply modified Codex home")
+	}
+	for _, want := range []string{"Filters: only=config exclude=none", configPath} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+	manifest := readOnlyRollbackManifest(t, filepath.Join(fixture.project, ".agent-canon", "rollback"))
+	if len(manifest.Changes) == 0 {
+		t.Fatalf("rollback manifest has no changes: %#v", manifest)
+	}
+}
+
 func TestRunApplyCodexMergeConfigBlocksOpenConfigConflictWithoutWrites(t *testing.T) {
 	fixture := fixtureWithProjectMCPConfigConflict(t, "")
 	configPath := filepath.Join(fixture.project, ".codex", "config.toml")

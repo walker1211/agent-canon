@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": ["Read", "Grep"]
+  },
+  "mcpServers": {
+    "fixture-project-index": {
+      "command": "fixture-mcp-index",
+      "args": ["--workspace", "."],
+      "env": {
+        "PROJECT_SCOPE": "fixture"
+      }
+    }
+  }
+}

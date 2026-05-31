@@ -1,0 +1,6 @@
+model = "fixture-model"
+approval_policy = "on-request"
+
+[mcp_servers."keep-existing"]
+command = "fixture-keep-existing"
+args = ["--stdio"]

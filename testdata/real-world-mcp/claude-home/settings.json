@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": ["Bash(go test ./...)", "Read"]
+  },
+  "mcpServers": {
+    "fixture-filesystem": {
+      "command": "fixture-mcp-filesystem",
+      "args": ["--root", "./sandbox"],
+      "env": {
+        "SAFE_MODE": "1"
+      }
+    },
+    "fixture-browser": {
+      "command": "fixture-mcp-browser",
+      "args": ["--stdio"],
+      "env": {
+        "BROWSER_CHANNEL": "stable"
+      }
+    }
+  }
+}
