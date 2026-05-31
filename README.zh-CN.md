@@ -11,15 +11,15 @@
 下面是最小黄金路径：先只读扫描，再同步生成状态，最后用 dry-run 查看将要写入 Codex 的内容。
 
 ```sh
-agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 查看完整命令：
 
 ```sh
-agent-canon --help
+./agent-canon --help
 ```
 
 ## 安装与 Release 归档
@@ -42,7 +42,7 @@ agent-canon --help
 确认 dry-run 输出后，可以显式执行写回：
 
 ```sh
-agent-canon apply codex --yes --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply codex --yes --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 默认不会写入全局 home。需要写入全局 Claude 或 Codex 配置时，必须显式传 `--global` 并先审查 dry-run 输出。
@@ -50,7 +50,7 @@ agent-canon apply codex --yes --project <repo-root> --claude-home ~/.claude --co
 如果你已经有一份 Codex 配置，只想合并安全的 Claude MCP server entries：
 
 ```sh
-agent-canon apply codex --global --merge-config --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply codex --global --merge-config --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 `--merge-config` 只合并 MCP server entries，不会覆盖 model、profile、sandbox、auth、provider 或 feature settings。
@@ -70,21 +70,21 @@ agent-canon apply codex --global --merge-config --dry-run --only config --projec
 ## 常用命令
 
 ```sh
-agent-canon scan
-agent-canon plan
-agent-canon export codex --out <preview-dir>
-agent-canon export claude --out <preview-dir>
-agent-canon compile codex --out <preview-dir>
-agent-canon compile claude --out <preview-dir>
-agent-canon sync claude codex
-agent-canon status
-agent-canon conflicts
-agent-canon resolve <conflict-id> --manual <value>
-agent-canon apply codex --dry-run
-agent-canon apply claude --dry-run
-agent-canon verify codex
-agent-canon verify claude
-agent-canon rollback <apply-id> --dry-run
+./agent-canon scan
+./agent-canon plan
+./agent-canon export codex --out <preview-dir>
+./agent-canon export claude --out <preview-dir>
+./agent-canon compile codex --out <preview-dir>
+./agent-canon compile claude --out <preview-dir>
+./agent-canon sync claude codex
+./agent-canon status
+./agent-canon conflicts
+./agent-canon resolve <conflict-id> --manual <value>
+./agent-canon apply codex --dry-run
+./agent-canon apply claude --dry-run
+./agent-canon verify codex
+./agent-canon verify claude
+./agent-canon rollback <apply-id> --dry-run
 ```
 
 ## 场景示例
@@ -92,26 +92,26 @@ agent-canon rollback <apply-id> --dry-run
 ### 只预览迁移结果
 
 ```sh
-agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon status --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
-agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon sync claude codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon status --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 ### 写入前审查并解决冲突
 
 ```sh
-agent-canon conflicts --project <repo-root>
-agent-canon resolve <conflict-id> --manual <value> --project <repo-root>
-agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon conflicts --project <repo-root>
+./agent-canon resolve <conflict-id> --manual <value> --project <repo-root>
+./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 ### 安全检查 global home 变更
 
 ```sh
-agent-canon apply codex --global --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply codex --global --dry-run --only config --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 只有审查输出后，才把 `--dry-run` 换成 `--yes`。除非明确要写入选定的 global home 目标，否则不要使用 `--global --yes`。

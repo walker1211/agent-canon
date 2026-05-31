@@ -44,12 +44,12 @@ func TestPublicReadinessReadmesFollowLanguageAndQuickStartRules(t *testing.T) {
 		if !strings.Contains(contents, "Quick Start") {
 			t.Fatalf("%s missing Quick Start section", rel)
 		}
-		if !strings.Contains(contents, "agent-canon --help") {
-			t.Fatalf("%s missing help command example", rel)
+		if !strings.Contains(contents, "./agent-canon --help") {
+			t.Fatalf("%s missing local help command example", rel)
 		}
-		for _, command := range []string{"agent-canon scan", "agent-canon sync claude codex", "agent-canon apply codex --dry-run"} {
+		for _, command := range []string{"./agent-canon scan", "./agent-canon sync claude codex", "./agent-canon apply codex --dry-run"} {
 			if !strings.Contains(contents, command) {
-				t.Fatalf("%s missing golden path command %q", rel, command)
+				t.Fatalf("%s missing local golden path command %q", rel, command)
 			}
 		}
 	}
@@ -68,8 +68,8 @@ func TestPublicReadinessReadmesDocumentScenarioExamples(t *testing.T) {
 				"Preview a migration without writing targets",
 				"Review and resolve conflicts before applying",
 				"Inspect global-home changes safely",
-				"agent-canon compile codex --out <preview-dir>",
-				"agent-canon apply codex --global --dry-run --only config",
+				"./agent-canon compile codex --out <preview-dir>",
+				"./agent-canon apply codex --global --dry-run --only config",
 				"Only replace `--dry-run` with `--yes` after reviewing the output",
 				"Do not use `--global --yes` unless you intentionally want to write selected global home targets",
 			},
@@ -81,8 +81,8 @@ func TestPublicReadinessReadmesDocumentScenarioExamples(t *testing.T) {
 				"只预览迁移结果",
 				"解决冲突",
 				"安全检查 global home",
-				"agent-canon compile codex --out <preview-dir>",
-				"agent-canon apply codex --global --dry-run --only config",
+				"./agent-canon compile codex --out <preview-dir>",
+				"./agent-canon apply codex --global --dry-run --only config",
 				"只有审查输出后，才把 `--dry-run` 换成 `--yes`",
 				"否则不要使用 `--global --yes`",
 			},
@@ -145,6 +145,9 @@ func TestPublicReadinessReadmesDistinguishReleaseAndLocalBuildCommands(t *testin
 			if !strings.Contains(installSection, want) {
 				t.Fatalf("%s install section missing local/release command marker %q", tc.rel, want)
 			}
+		}
+		if strings.Contains(installSection, "././agent-canon") {
+			t.Fatalf("%s install section contains duplicated local binary prefix", tc.rel)
 		}
 	}
 }
