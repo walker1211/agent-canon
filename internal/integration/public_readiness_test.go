@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -150,6 +151,124 @@ func TestPublicReadinessReadmesDistinguishReleaseAndLocalBuildCommands(t *testin
 			t.Fatalf("%s install section contains duplicated local binary prefix", tc.rel)
 		}
 	}
+}
+
+func TestDocsAgentCanonShellExamplesFollowCLIUsage(t *testing.T) {
+	repoRoot := publicReadinessRepoRoot()
+	docsDir := filepath.Join(repoRoot, "docs")
+	entries, err := os.ReadDir(docsDir)
+	if os.IsNotExist(err) {
+		t.Skip("docs directory is not part of the public repository checkout")
+	}
+	if err != nil {
+		t.Fatalf("read docs directory: %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		rel := filepath.Join("docs", entry.Name())
+		contents := readFileString(t, filepath.Join(repoRoot, rel))
+		assertDocumentedAgentCanonCommandsFollowCLIUsage(t, rel, contents)
+	}
+}
+
+func assertDocumentedAgentCanonCommandsFollowCLIUsage(t *testing.T, rel string, contents string) {
+	t.Helper()
+	inShellFence := false
+	for index, line := range strings.Split(contents, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if fence, ok := strings.CutPrefix(trimmed, "```"); ok {
+			fence = strings.TrimSpace(fence)
+			inShellFence = fence == "sh" || fence == "bash"
+			continue
+		}
+		if !inShellFence || !strings.HasPrefix(trimmed, "agent-canon ") {
+			continue
+		}
+		if err := validateDocumentedAgentCanonCommand(trimmed); err != nil {
+			t.Fatalf("%s:%d documents invalid agent-canon command %q: %v", rel, index+1, trimmed, err)
+		}
+	}
+}
+
+func validateDocumentedAgentCanonCommand(command string) error {
+	fields := strings.Fields(command)
+	if len(fields) < 2 || fields[0] != "agent-canon" {
+		return nil
+	}
+	known := map[string]bool{
+		"init": true, "scan": true, "status": true, "diff": true, "plan": true,
+		"export": true, "import": true, "compile": true, "sync": true,
+		"conflicts": true, "resolve": true, "apply": true, "rollback": true, "verify": true,
+	}
+	cmd := fields[1]
+	if !known[cmd] {
+		return fmt.Errorf("unknown command %q", cmd)
+	}
+	switch cmd {
+	case "export", "compile":
+		if len(fields) < 3 || !isToolTarget(fields[2]) {
+			return fmt.Errorf("%s requires target claude or codex", cmd)
+		}
+		if !hasFlagWithValue(fields, "--out") {
+			return fmt.Errorf("%s %s requires --out <dir>", cmd, fields[2])
+		}
+	case "import", "verify":
+		if len(fields) < 3 || !isToolTarget(fields[2]) {
+			return fmt.Errorf("%s requires target claude or codex", cmd)
+		}
+	case "sync":
+		if len(fields) < 4 || fields[2] != "claude" || fields[3] != "codex" {
+			return fmt.Errorf("sync requires direction claude codex")
+		}
+	case "resolve":
+		if len(fields) < 4 || strings.HasPrefix(fields[2], "-") {
+			return fmt.Errorf("resolve requires <conflict-id> and a decision")
+		}
+		if !hasResolveDecision(fields[3:]) {
+			return fmt.Errorf("resolve requires --ours, --theirs, --accept-suggestion, or --manual <value>")
+		}
+	case "apply":
+		if len(fields) < 3 || !isToolTarget(fields[2]) {
+			return fmt.Errorf("apply requires target claude or codex")
+		}
+	case "rollback":
+		if len(fields) < 3 || strings.HasPrefix(fields[2], "-") {
+			return fmt.Errorf("rollback requires <apply-id>")
+		}
+	case "diff":
+		if len(fields) >= 3 && fields[2] != "codex" && !strings.HasPrefix(fields[2], "-") {
+			return fmt.Errorf("diff supports only optional codex target")
+		}
+	}
+	return nil
+}
+
+func isToolTarget(value string) bool {
+	return value == "claude" || value == "codex"
+}
+
+func hasFlagWithValue(fields []string, flag string) bool {
+	for index, field := range fields {
+		if field == flag && index+1 < len(fields) && !strings.HasPrefix(fields[index+1], "-") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasResolveDecision(fields []string) bool {
+	for index, field := range fields {
+		switch field {
+		case "--ours", "--theirs", "--accept-suggestion":
+			return true
+		case "--manual":
+			return index+1 < len(fields) && !strings.HasPrefix(fields[index+1], "-")
+		}
+	}
+	return false
 }
 
 func TestPublicReadinessSecurityAndContributingContracts(t *testing.T) {
