@@ -101,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > dist/release-notes.md <<'EOF'
-          Release assets are platform archives named `agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz`. Each archive includes the `agent-canon` binary, `LICENSE`, `README.md`, `README.zh-CN.md`, and `README.en.md`.
+          Release assets are platform archives named `agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz`. Each archive includes the `agent-canon` binary, `LICENSE`, `README.md`, and `README.zh-CN.md`.
 
           Verify the downloaded archive with `checksums.txt` before running it.
 
@@ -111,7 +111,7 @@ jobs:
           agent-canon --help
           ```
 
-          Read `README.en.md` or `README.zh-CN.md` for the full Quick Start and safe apply guidance.
+          Read `README.md` or `README.zh-CN.md` for the full Quick Start and safe apply guidance.
           EOF
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" --notes-file dist/release-notes.md --repo "${GITHUB_REPOSITORY}"

@@ -50,7 +50,6 @@ func TestReleasePackageCreatesMinimalArchive(t *testing.T) {
 		packageName + "/" + binaryName,
 		packageName + "/LICENSE",
 		packageName + "/README.md",
-		packageName + "/README.en.md",
 		packageName + "/README.zh-CN.md",
 	}
 	sort.Strings(want)

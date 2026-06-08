@@ -44,7 +44,6 @@ mkdir -p "$package_dir"
 cp "$repo_root/LICENSE" "$package_dir/LICENSE"
 cp "$repo_root/README.md" "$package_dir/README.md"
 cp "$repo_root/README.zh-CN.md" "$package_dir/README.zh-CN.md"
-cp "$repo_root/README.en.md" "$package_dir/README.en.md"
 
 (
   cd "$dist_dir"
