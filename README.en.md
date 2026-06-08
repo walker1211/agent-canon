@@ -2,13 +2,26 @@
 
 # agent-canon
 
-`agent-canon` is a semantic migration, readiness, and conflict-review workflow for AI coding agent configurations. Its current golden path carries Claude Code semantics toward Codex CLI: scan and plan first, generate previews, resolve conflicts, apply safely, verify results, and keep rollback state.
+`agent-canon` is a bidirectional CLI migration, readiness, and conflict-review workflow for Claude Code and Codex CLI configurations. It helps move AI coding agent instructions, rules, skills, commands, MCP server entries, permission boundaries, and memory boundaries between the two tools without treating the migration as a directory copy.
 
-The core idea: Claude Code to Codex CLI is not a directory copy. It maps project instructions, rules, skills, commands, MCP configuration, permission boundaries, and memory boundaries into the target tool's configuration model.
+Claude Code and Codex CLI use different configuration models. The golden path is to scan and plan first, generate previews, resolve conflicts, apply safely, verify results, and keep rollback state.
+
+## Why agent-canon
+
+Moving from Claude Code to Codex CLI, or from Codex CLI back to Claude Code, is easy to underestimate. The hard part is not copying files; it is deciding what can be copied, what must be generated for the target tool, what can be merged, and what needs human review.
+
+Common migration risks:
+
+- Claude Code and Codex CLI do not store the same concepts in the same files.
+- Existing target configs may already contain model, sandbox, auth, provider, feature, or MCP settings.
+- Global homes may contain private local state and should not be written by default.
+- Some semantics, such as path-scoped rules, local settings, memory boundaries, and conflicting MCP entries, need review instead of blind conversion.
+
+`agent-canon` handles migration as copy / generate / merge, not cutover. Original tool configuration is preserved, real writes require explicit confirmation, and writebacks keep rollback manifests.
 
 ## Quick Start
 
-The minimal golden path is read-only scan, state sync, then a dry-run for the Codex writeback.
+The minimal source-build golden path is read-only scan, state sync, then a dry-run for the Codex writeback. These examples assume you built the local binary and run it from the repository root with `./agent-canon`.
 
 ```sh
 ./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
@@ -20,6 +33,14 @@ Show all commands:
 
 ```sh
 ./agent-canon --help
+```
+
+For the reverse direction, pass the source and target explicitly:
+
+```sh
+./agent-canon scan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon plan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply claude --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 ## Install and Release Archives
@@ -73,7 +94,7 @@ Skip rules apply during scan, so they affect later `plan`, `export`, `compile`, 
 
 ## Current Scope
 
-`agent-canon` currently focuses on Claude Code to Codex CLI semantic migration and review. It supports project-local state, explicit global-home writebacks, conflict review, backups, rollback manifests, and MCP server entry merge support.
+`agent-canon` currently focuses on bidirectional Claude Code and Codex CLI semantic migration and review. It supports project-local state, explicit global-home writebacks, conflict review, backups, rollback manifests, and MCP server entry merge support.
 
 Non-goals for the current scope:
 
@@ -105,7 +126,7 @@ Non-goals for the current scope:
 
 ## Scenario Examples
 
-### Preview a migration without writing targets
+### Preview a migration without writing targets (Claude to Codex)
 
 ```sh
 ./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
@@ -114,6 +135,16 @@ Non-goals for the current scope:
 ./agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ./agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### Preview a Codex to Claude migration without writing targets
+
+```sh
+./agent-canon scan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon plan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon compile claude --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon verify claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply claude --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 ### Review and resolve conflicts before applying
@@ -131,6 +162,14 @@ Non-goals for the current scope:
 ```
 
 Only replace `--dry-run` with `--yes` after reviewing the output. Do not use `--global --yes` unless you intentionally want to write selected global home targets.
+
+### Check rollback before restoring files
+
+```sh
+./agent-canon rollback <apply-id> --dry-run
+```
+
+Rollback only touches files listed in the apply manifest and checks drift before writing.
 
 ## Write Safety Boundary
 

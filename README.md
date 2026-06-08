@@ -2,6 +2,6 @@
 
 # agent-canon
 
-A semantic migration and readiness workflow for AI coding agent configurations.
+A bidirectional CLI migration tool for Claude Code and Codex CLI configurations, with dry-run review and rollback support.
 
 Start with the language links above.

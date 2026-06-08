@@ -2,13 +2,26 @@
 
 # agent-canon
 
-`agent-canon` 是一个面向 AI 编程工具配置的语义迁移、readiness 和冲突审查工作流。当前黄金路径是把 Claude Code 语义迁移到 Codex CLI：先扫描和计划，再生成 preview，解决冲突后安全写回，并保留可验证、可回滚的状态。
+`agent-canon` 是一个面向 Claude Code 和 Codex CLI 配置的双向 CLI 迁移、readiness 和冲突审查工作流。它帮助你在两个工具之间迁移 AI coding agent 的项目指令、规则、skills、commands、MCP server entries、权限边界和记忆边界，而不是把迁移当成整目录复制。
 
-核心原则：Claude Code 到 Codex CLI 不是整目录复制，而是把项目指令、规则、技能、命令、MCP 配置、权限边界和记忆边界映射到目标工具能理解的配置模型。
+Claude Code 和 Codex CLI 的配置模型不同。推荐的黄金路径是先 scan 和 plan，再生成 preview，解决冲突后安全写回，验证结果，并保留 rollback 状态。
+
+## 为什么需要 agent-canon
+
+从 Claude Code 迁移到 Codex CLI，或从 Codex CLI 迁回 Claude Code，都很容易被低估。难点不是复制文件，而是判断哪些内容能复制，哪些需要按目标工具生成，哪些可以合并，哪些必须人工 review。
+
+常见迁移风险包括：
+
+- Claude Code 和 Codex CLI 不会把同一类概念放在同一套文件里。
+- 目标侧可能已经有 model、sandbox、auth、provider、feature 或 MCP 配置。
+- 全局 home 可能包含私有本地状态，不应该默认写入。
+- path-scoped rules、local settings、memory 边界和冲突 MCP entries 这类语义需要 review，不能盲目转换。
+
+`agent-canon` 把迁移处理成复制 / 生成 / 合并，而不是剪切或覆盖。原工具配置会保留，真实写入必须显式确认，写回会保留 rollback manifest。
 
 ## Quick Start
 
-下面是最小黄金路径：先只读扫描，再同步生成状态，最后用 dry-run 查看将要写入 Codex 的内容。
+下面是源码构建后的最小黄金路径：先只读扫描，再同步生成状态，最后用 dry-run 查看将要写入 Codex 的内容。以下示例假设你在仓库根目录运行本地二进制 `./agent-canon`。
 
 ```sh
 ./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
@@ -20,6 +33,14 @@
 
 ```sh
 ./agent-canon --help
+```
+
+反向迁移时显式传 source 和 target：
+
+```sh
+./agent-canon scan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon plan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply claude --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 ## 安装与 Release 归档
@@ -73,7 +94,7 @@ Skip 在 scan 阶段生效，因此会影响 `plan`、`export`、`compile`、`sy
 
 ## 当前范围
 
-`agent-canon` 当前聚焦 Claude Code 到 Codex CLI 的语义迁移与审查。它支持项目内状态、显式 global home 写回、冲突审查、备份、rollback manifest，以及 MCP server entry 合并。
+`agent-canon` 当前聚焦 Claude Code 和 Codex CLI 的双向语义迁移与审查。它支持项目内状态、显式 global home 写回、冲突审查、备份、rollback manifest，以及 MCP server entry 合并。
 
 当前非目标：
 
@@ -105,7 +126,7 @@ Skip 在 scan 阶段生效，因此会影响 `plan`、`export`、`compile`、`sy
 
 ## 场景示例
 
-### 只预览迁移结果
+### 只预览迁移结果（Claude 到 Codex）
 
 ```sh
 ./agent-canon scan --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
@@ -114,6 +135,16 @@ Skip 在 scan 阶段生效，因此会影响 `plan`、`export`、`compile`、`sy
 ./agent-canon compile codex --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ./agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### 只预览 Codex 到 Claude 的迁移结果
+
+```sh
+./agent-canon scan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon plan codex claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon compile claude --out <preview-dir> --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon verify claude --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
+./agent-canon apply claude --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex
 ```
 
 ### 写入前审查并解决冲突
@@ -131,6 +162,14 @@ Skip 在 scan 阶段生效，因此会影响 `plan`、`export`、`compile`、`sy
 ```
 
 只有审查输出后，才把 `--dry-run` 换成 `--yes`。除非明确要写入选定的 global home 目标，否则不要使用 `--global --yes`。
+
+### 回滚前先检查将要恢复的文件
+
+```sh
+./agent-canon rollback <apply-id> --dry-run
+```
+
+Rollback 只触碰 apply manifest 中列出的目标，并会在写入前检查漂移。
 
 ## 写入安全边界
 
