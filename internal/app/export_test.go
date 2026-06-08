@@ -83,6 +83,34 @@ func TestRunExportClaudeWritesPreviewAndPrintsShortSummary(t *testing.T) {
 	}
 }
 
+func TestRunExportCodexAppliesProjectSkipConfigBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+	outDir := filepath.Join(root, "preview")
+
+	writeFile(t, filepath.Join(claudeHome, "commands", "ccs"), "# CCS command wrapper\n")
+	writeFile(t, filepath.Join(claudeHome, "commands", "ccs.md"), "# CCS slash command\n")
+	writeFile(t, filepath.Join(project, ".agent-canon", "config.toml"), `[skip]
+resources = ["command:global-ccs"]
+`)
+	mustMkdir(t, codexHome)
+
+	var stdout, stderr bytes.Buffer
+	code := app.Run([]string{"export", "codex", "--project", project, "--claude-home", claudeHome, "--codex-home", codexHome, "--out", outDir}, project, root, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	assertFileExists(t, filepath.Join(outDir, "AGENTS.md"))
+	assertFileExists(t, filepath.Join(outDir, ".codex", "config.toml"))
+	assertFileExists(t, filepath.Join(outDir, "migration-report.md"))
+	if _, err := os.Stat(filepath.Join(outDir, ".agents", "skills", "ccs", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("skipped CCS preview exists or stat failed unexpectedly: %v", err)
+	}
+}
+
 func TestRunExportMalformedSettingsJSONReturnsExitTwo(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")

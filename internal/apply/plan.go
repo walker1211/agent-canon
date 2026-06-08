@@ -49,8 +49,8 @@ type FileChange struct {
 
 func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 	var out CodexPlan
-	out.Warnings = append(out.Warnings, input.Scan.Warnings...)
-	out.Warnings = append(out.Warnings, input.Plan.Warnings...)
+	out.Warnings = appendWarningsUnique(out.Warnings, input.Scan.Warnings...)
+	out.Warnings = appendWarningsUnique(out.Warnings, input.Plan.Warnings...)
 	roots := FilterRoots{Project: input.Scan.Project, Home: input.Scan.CodexHome}
 
 	projectScan := scanForScope(input.Scan, model.ScopeProject)
@@ -85,8 +85,8 @@ func BuildCodexPlan(input CodexPlanInput) (CodexPlan, error) {
 
 func BuildClaudePlan(input ClaudePlanInput) (ClaudePlan, error) {
 	var out ClaudePlan
-	out.Warnings = append(out.Warnings, input.Scan.Warnings...)
-	out.Warnings = append(out.Warnings, input.Plan.Warnings...)
+	out.Warnings = appendWarningsUnique(out.Warnings, input.Scan.Warnings...)
+	out.Warnings = appendWarningsUnique(out.Warnings, input.Plan.Warnings...)
 	roots := FilterRoots{Project: input.Scan.Project, Home: input.Scan.ClaudeHome}
 
 	projectScan := scanForScope(input.Scan, model.ScopeProject)
@@ -117,6 +117,23 @@ func BuildClaudePlan(input ClaudePlanInput) (ClaudePlan, error) {
 		return out.Changes[i].Path < out.Changes[j].Path
 	})
 	return out, nil
+}
+
+func appendWarningsUnique(existing []model.Warning, additions ...model.Warning) []model.Warning {
+	out := append([]model.Warning{}, existing...)
+	for _, addition := range additions {
+		seen := false
+		for _, warning := range out {
+			if warning.Code == addition.Code && warning.Message == addition.Message {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append(out, addition)
+		}
+	}
+	return out
 }
 
 type previewBuilder func(model.ScanReport, model.PlanReport) (exporter.CodexPreview, error)

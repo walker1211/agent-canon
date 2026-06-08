@@ -55,6 +55,22 @@ agent-canon --help
 
 `--merge-config` 只合并 MCP server entries，不会覆盖 model、profile、sandbox、auth、provider 或 feature settings。
 
+如果有不应该迁移到目标工具的桥接命令、临时技能或本地资源，可以在项目本地 `.agent-canon/config.toml` 中跳过。`.agent-canon/` 默认是本地状态目录，不应提交：
+
+```toml
+[skip]
+resources = [
+  "command:global-ccs",
+  "skill:global-ccs-delegation",
+]
+paths = [
+  "~/.claude/commands/ccs",
+  "~/.claude/commands/ccs.md",
+]
+```
+
+Skip 在 scan 阶段生效，因此会影响 `plan`、`export`、`compile`、`sync`、`apply` 和 `verify` 的后续结果。
+
 ## 当前范围
 
 `agent-canon` 当前聚焦 Claude Code 到 Codex CLI 的语义迁移与审查。它支持项目内状态、显式 global home 写回、冲突审查、备份、rollback manifest，以及 MCP server entry 合并。

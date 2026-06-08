@@ -164,6 +164,69 @@ func TestScanIgnoresHiddenSystemEntries(t *testing.T) {
 	}
 }
 
+func TestScanAppliesProjectSkipConfig(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+
+	writeFile(t, filepath.Join(claudeHome, "commands", "ccs"), "directory placeholder")
+	writeFile(t, filepath.Join(claudeHome, "commands", "ccs.md"), "# CCS command\n")
+	writeFile(t, filepath.Join(claudeHome, "skills", "ccs-delegation", "SKILL.md"), "# CCS delegation\n")
+	writeFile(t, filepath.Join(claudeHome, "commands", "keep.md"), "# Keep command\n")
+	writeFile(t, filepath.Join(project, ".agent-canon", "config.toml"), `[skip]
+resources = [
+  "command:global-ccs",
+  "skill:global-ccs-delegation",
+]
+paths = [
+  "`+filepath.ToSlash(filepath.Join(claudeHome, "commands", "ccs.md"))+`",
+]
+`)
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("create codex home: %v", err)
+	}
+
+	report, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	for _, id := range []string{"command:global-ccs", "skill:global-ccs-delegation"} {
+		if hasResource(report.Resources, id) {
+			t.Fatalf("skipped resource %s still present in %#v", id, report.Resources)
+		}
+	}
+	if !hasResource(report.Resources, "command:global-keep") {
+		t.Fatalf("non-skipped command missing from %#v", report.Resources)
+	}
+	if !hasWarningCode(report.Warnings, "skip-config-applied") {
+		t.Fatalf("report warnings missing skip-config-applied: %#v", report.Warnings)
+	}
+}
+
+func TestScanRejectsMalformedProjectSkipConfig(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+
+	writeFile(t, filepath.Join(project, ".agent-canon", "config.toml"), "[skip]\nresources = [\"command:global-ccs\"\n")
+	if err := os.MkdirAll(claudeHome, 0o755); err != nil {
+		t.Fatalf("create claude home: %v", err)
+	}
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("create codex home: %v", err)
+	}
+
+	if _, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome}); err == nil {
+		t.Fatalf("Scan returned nil error for malformed skip config")
+	}
+}
+
 func TestScanMarksPathScopedRulesForManualReview(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
