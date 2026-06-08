@@ -55,6 +55,22 @@ If you already have a Codex config and only want to merge safe Claude MCP server
 
 `--merge-config` only merges MCP server entries. It does not overwrite model, profile, sandbox, auth, provider, or feature settings.
 
+If a bridge command, temporary skill, or local resource should not migrate to the target tool, skip it in the project-local `.agent-canon/config.toml`. The `.agent-canon/` directory is local workspace state and should not be committed:
+
+```toml
+[skip]
+resources = [
+  "command:global-ccs",
+  "skill:global-ccs-delegation",
+]
+paths = [
+  "~/.claude/commands/ccs",
+  "~/.claude/commands/ccs.md",
+]
+```
+
+Skip rules apply during scan, so they affect later `plan`, `export`, `compile`, `sync`, `apply`, and `verify` results.
+
 ## Current Scope
 
 `agent-canon` currently focuses on Claude Code to Codex CLI semantic migration and review. It supports project-local state, explicit global-home writebacks, conflict review, backups, rollback manifests, and MCP server entry merge support.

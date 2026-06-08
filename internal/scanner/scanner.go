@@ -57,6 +57,12 @@ func Scan(opts Options) (model.ScanReport, error) {
 	report.Warnings = append(report.Warnings, settingsWarnings...)
 	annotateCodexTargetWarnings(report.Resources, codexTargets)
 
+	skipConfig, err := loadSkipConfig(project)
+	if err != nil {
+		return model.ScanReport{}, err
+	}
+	applySkipConfig(&report, skipConfig)
+
 	sort.Slice(report.Resources, func(i, j int) bool {
 		if report.Resources[i].ID == report.Resources[j].ID {
 			return report.Resources[i].SourcePath < report.Resources[j].SourcePath
