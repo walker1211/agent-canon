@@ -128,6 +128,5 @@ Release archives should contain only:
 - `LICENSE`
 - `README.md`
 - `README.zh-CN.md`
-- `README.en.md`
 
 They should not contain local config, `.env`, secrets, databases, logs, generated workspace state, or private assets.

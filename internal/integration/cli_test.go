@@ -67,7 +67,7 @@ func TestReadmeGoldenPathCommandsStayExecutable(t *testing.T) {
 		"./agent-canon verify codex --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
 		"./agent-canon apply codex --dry-run --project <repo-root> --claude-home ~/.claude --codex-home ~/.codex",
 	}
-	for _, rel := range []string{"README.en.md", "README.zh-CN.md"} {
+	for _, rel := range []string{"README.md", "README.zh-CN.md"} {
 		contents := readFileString(t, filepath.Join(publicReadinessRepoRoot(), rel))
 		for _, command := range commands {
 			if !strings.Contains(contents, command) {

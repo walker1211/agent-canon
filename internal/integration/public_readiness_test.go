@@ -32,7 +32,7 @@ func TestPublicReadinessFilesAreTrackable(t *testing.T) {
 
 func TestPublicReadinessReadmesFollowLanguageAndQuickStartRules(t *testing.T) {
 	repoRoot := publicReadinessRepoRoot()
-	for _, rel := range []string{"README.md", "README.zh-CN.md", "README.en.md"} {
+	for _, rel := range []string{"README.md", "README.zh-CN.md"} {
 		contents := readFileString(t, filepath.Join(repoRoot, rel))
 		assertSingleLanguageSwitch(t, rel, contents)
 		if strings.Contains(contents, "./docs/") {
@@ -40,7 +40,7 @@ func TestPublicReadinessReadmesFollowLanguageAndQuickStartRules(t *testing.T) {
 		}
 	}
 
-	for _, rel := range []string{"README.zh-CN.md", "README.en.md"} {
+	for _, rel := range []string{"README.md", "README.zh-CN.md"} {
 		contents := readFileString(t, filepath.Join(repoRoot, rel))
 		if !strings.Contains(contents, "Quick Start") {
 			t.Fatalf("%s missing Quick Start section", rel)
@@ -63,7 +63,7 @@ func TestPublicReadinessReadmesDocumentScenarioExamples(t *testing.T) {
 		markers []string
 	}{
 		{
-			rel: "README.en.md",
+			rel: "README.md",
 			markers: []string{
 				"## Scenario Examples",
 				"Preview a migration without writing targets",
@@ -106,7 +106,7 @@ func TestPublicReadinessReadmesDocumentReleaseInstallPath(t *testing.T) {
 		currentScope   string
 	}{
 		{rel: "README.zh-CN.md", installHeading: "## 安装与 Release 归档", currentScope: "当前范围"},
-		{rel: "README.en.md", installHeading: "## Install and Release Archives", currentScope: "Current Scope"},
+		{rel: "README.md", installHeading: "## Install and Release Archives", currentScope: "Current Scope"},
 	} {
 		contents := readFileString(t, filepath.Join(repoRoot, tc.rel))
 		quickStartIndex := strings.Index(contents, "## Quick Start")
@@ -116,7 +116,7 @@ func TestPublicReadinessReadmesDocumentReleaseInstallPath(t *testing.T) {
 			t.Fatalf("%s must document release archive install guidance after Quick Start and before Current Scope", tc.rel)
 		}
 		installSection := contents[installHeadingIndex:currentScopeIndex]
-		for _, want := range []string{"agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz", "checksums.txt", "README.zh-CN.md", "README.en.md", "LICENSE", "agent-canon --help"} {
+		for _, want := range []string{"agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz", "checksums.txt", "README.zh-CN.md", "LICENSE", "agent-canon --help"} {
 			if !strings.Contains(installSection, want) {
 				t.Fatalf("%s install section missing release install guidance marker %q", tc.rel, want)
 			}
@@ -133,7 +133,7 @@ func TestPublicReadinessReadmesDistinguishReleaseAndLocalBuildCommands(t *testin
 		localBuildMarker string
 	}{
 		{rel: "README.zh-CN.md", installHeading: "## 安装与 Release 归档", currentScope: "当前范围", localBuildMarker: "源码构建"},
-		{rel: "README.en.md", installHeading: "## Install and Release Archives", currentScope: "Current Scope", localBuildMarker: "source build"},
+		{rel: "README.md", installHeading: "## Install and Release Archives", currentScope: "Current Scope", localBuildMarker: "source build"},
 	} {
 		contents := readFileString(t, filepath.Join(repoRoot, tc.rel))
 		installHeadingIndex := strings.Index(contents, tc.installHeading)
@@ -299,7 +299,6 @@ func TestPublicReadinessContributingDocumentsReleasePackaging(t *testing.T) {
 		"`LICENSE`",
 		"`README.md`",
 		"`README.zh-CN.md`",
-		"`README.en.md`",
 		"local config",
 		".env",
 		"databases",
@@ -334,7 +333,6 @@ func TestPublicReadinessFilesDoNotExposePrivateContent(t *testing.T) {
 	for _, rel := range []string{
 		"README.md",
 		"README.zh-CN.md",
-		"README.en.md",
 		"SECURITY.md",
 		"CONTRIBUTING.md",
 		"build.sh",
@@ -500,7 +498,6 @@ func TestPublicReadinessCIAndReleaseWorkflowContracts(t *testing.T) {
 		"agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz",
 		"Verify the downloaded archive with `checksums.txt`",
 		"agent-canon --help",
-		"README.en.md",
 		"README.zh-CN.md",
 		"gh release edit",
 		"--notes-file dist/release-notes.md",
@@ -519,7 +516,6 @@ func publicReadinessFiles() []string {
 	return []string{
 		"README.md",
 		"README.zh-CN.md",
-		"README.en.md",
 		"SECURITY.md",
 		"CONTRIBUTING.md",
 		"build.sh",
@@ -554,11 +550,19 @@ func assertPublicFileExists(t *testing.T, path string) {
 
 func assertSingleLanguageSwitch(t *testing.T, label string, contents string) {
 	t.Helper()
-	const languageSwitch = "[中文](./README.zh-CN.md) | [English](./README.en.md)"
-	if !strings.HasPrefix(contents, languageSwitch+"\n\n") {
-		t.Fatalf("%s must start with the language switch", label)
+	want := "[中文](./README.zh-CN.md)"
+	if label == "README.zh-CN.md" {
+		want = "[English](./README.md)"
 	}
-	if strings.Count(contents, languageSwitch) != 1 {
-		t.Fatalf("%s language switch count = %d, want 1", label, strings.Count(contents, languageSwitch))
+	if !strings.HasPrefix(contents, want+"\n\n") {
+		t.Fatalf("%s must start with the language switch %q", label, want)
+	}
+	if strings.Count(contents, want) != 1 {
+		t.Fatalf("%s language switch count = %d, want 1", label, strings.Count(contents, want))
+	}
+	for _, forbidden := range []string{"README.en.md", "[中文](./README.zh-CN.md) | [English]"} {
+		if strings.Contains(contents, forbidden) {
+			t.Fatalf("%s contains obsolete language switch marker %q", label, forbidden)
+		}
 	}
 }

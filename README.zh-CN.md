@@ -1,4 +1,4 @@
-[中文](./README.zh-CN.md) | [English](./README.en.md)
+[English](./README.md)
 
 # agent-canon
 
@@ -45,7 +45,7 @@ Claude Code 和 Codex CLI 的配置模型不同。推荐的黄金路径是先 sc
 
 ## 安装与 Release 归档
 
-请从 GitHub Release 下载对应平台的归档。归档命名为 `agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz`，包含 `agent-canon` 可执行文件、`LICENSE`、`README.md`、`README.zh-CN.md` 和 `README.en.md`。
+请从 GitHub Release 下载对应平台的归档。归档命名为 `agent-canon_vX.Y.Z_<goos>_<goarch>.tar.gz`，包含 `agent-canon` 可执行文件、`LICENSE`、`README.md`、`README.zh-CN.md` 和 `README.md`。
 
 运行前，请使用同一 release 中的 `checksums.txt` 校验下载的归档。安装后的第一个安全命令是：
 
@@ -53,7 +53,7 @@ Claude Code 和 Codex CLI 的配置模型不同。推荐的黄金路径是先 sc
 agent-canon --help
 ```
 
-中文指南请继续阅读本文档；英文指南请查看 `README.en.md`。如果不下载 release 归档，也可以从源码构建本地可执行文件。源码构建后，在仓库根目录用 `./agent-canon` 运行本地二进制：
+中文指南请继续阅读本文档；英文指南请查看 `README.md`。如果不下载 release 归档，也可以从源码构建本地可执行文件。源码构建后，在仓库根目录用 `./agent-canon` 运行本地二进制：
 
 ```sh
 ./build.sh
