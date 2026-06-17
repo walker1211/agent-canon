@@ -37,6 +37,24 @@ func TestBuildCodexPlanMapsProjectFilesAndSkipsGlobalByDefault(t *testing.T) {
 	}
 }
 
+func TestBuildCodexPlanCopiesProjectSkillBundleFiles(t *testing.T) {
+	root := t.TempDir()
+	skill := resource(t, root, model.ScopeProject, model.KindSkill, "skill:project-review", filepath.Join(".claude", "skills", "review", "SKILL.md"), filepath.Join(".agents", "skills", "review", "SKILL.md"), model.StatusPartial, "# Review\n")
+	writeFile(t, filepath.Join(filepath.Dir(skill.SourcePath), "references", "usage.md"), "Use review reference.\n")
+	scan := syntheticScan(t, root, skill)
+
+	plan, err := applypkg.BuildCodexPlan(applypkg.CodexPlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildCodexPlan returned error: %v", err)
+	}
+
+	assertChangePath(t, plan, filepath.Join(scan.Project, ".agents", "skills", "review", "SKILL.md"))
+	reference := requireChange(t, plan, filepath.Join(scan.Project, ".agents", "skills", "review", "references", "usage.md"))
+	if !strings.Contains(string(reference.Contents), "Use review reference.") {
+		t.Fatalf("reference change missing contents:\n%s", reference.Contents)
+	}
+}
+
 func TestBuildCodexPlanIncludesGlobalFilesWhenEnabled(t *testing.T) {
 	root := t.TempDir()
 	scan := syntheticScan(t, root,
@@ -375,6 +393,24 @@ func TestBuildClaudePlanMapsProjectFilesAndSkipsGlobalByDefault(t *testing.T) {
 	}
 	if !hasWarningMessage(plan.Warnings, "global-skipped", "--claude-home") {
 		t.Fatalf("warnings = %#v, want --claude-home guidance", plan.Warnings)
+	}
+}
+
+func TestBuildClaudePlanCopiesProjectSkillBundleFiles(t *testing.T) {
+	root := t.TempDir()
+	skill := resource(t, root, model.ScopeProject, model.KindSkill, "skill:project-review", filepath.Join(".claude", "skills", "review", "SKILL.md"), filepath.Join(".agents", "skills", "review", "SKILL.md"), model.StatusPartial, "# Review\n")
+	writeFile(t, filepath.Join(filepath.Dir(skill.SourcePath), "references", "usage.md"), "Use review reference.\n")
+	scan := syntheticScan(t, root, skill)
+
+	plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan)})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan returned error: %v", err)
+	}
+
+	assertClaudeChangePath(t, plan, filepath.Join(scan.Project, ".claude", "skills", "review", "SKILL.md"))
+	reference := requireClaudeChange(t, plan, filepath.Join(scan.Project, ".claude", "skills", "review", "references", "usage.md"))
+	if !strings.Contains(string(reference.Contents), "Use review reference.") {
+		t.Fatalf("reference change missing contents:\n%s", reference.Contents)
 	}
 }
 

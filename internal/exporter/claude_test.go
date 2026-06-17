@@ -85,6 +85,28 @@ func TestBuildClaudePreviewSecretsFixtureRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestBuildClaudePreviewCopiesSkillBundleFiles(t *testing.T) {
+	skillDir := filepath.Join(t.TempDir(), "bundle-skill")
+	sourcePath := filepath.Join(skillDir, "SKILL.md")
+	writePreviewSourceFile(t, sourcePath, "# Bundle Skill\n")
+	writePreviewSourceFile(t, filepath.Join(skillDir, "references", "usage.md"), "Use this reference.\n")
+
+	preview := buildSyntheticClaudePreview(t, model.Resource{
+		ID:         "skill:project-bundle-skill",
+		Kind:       model.KindSkill,
+		Scope:      model.ScopeProject,
+		SourcePath: sourcePath,
+		Status:     model.StatusPartial,
+		Strategy:   "copy-skill-with-review",
+	})
+
+	requireFile(t, preview, filepath.ToSlash(filepath.Join(".claude", "skills", "bundle-skill", "SKILL.md")))
+	reference := string(requireFile(t, preview, filepath.ToSlash(filepath.Join(".claude", "skills", "bundle-skill", "references", "usage.md"))).Contents)
+	if !strings.Contains(reference, "Use this reference.") {
+		t.Fatalf("skill reference was not copied:\n%s", reference)
+	}
+}
+
 func TestBuildClaudePreviewGeneratesPartialCommandAndAgentPreviews(t *testing.T) {
 	preview := buildSyntheticClaudePreview(t, model.Resource{
 		ID:         "command:project-deploy",

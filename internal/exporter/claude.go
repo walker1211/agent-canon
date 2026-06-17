@@ -9,6 +9,7 @@ import (
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/security"
+	"github.com/zhangyoujun/agent-canon/internal/skillbundle"
 )
 
 func BuildClaudePreview(scan model.ScanReport, plan model.PlanReport) (CodexPreview, error) {
@@ -44,11 +45,11 @@ func (b claudeBuilder) files() ([]PreviewFile, error) {
 		}
 		switch resource.Kind {
 		case model.KindSkill:
-			file, err := b.skillPreview(resource)
+			skillFiles, err := b.skillPreview(resource)
 			if err != nil {
 				return nil, err
 			}
-			files = append(files, file)
+			files = append(files, skillFiles...)
 		case model.KindCommand:
 			file, err := b.commandPreview(resource)
 			if err != nil {
@@ -158,17 +159,28 @@ type claudeMCPPreview struct {
 	Warnings       []model.Warning `json:"warnings,omitempty"`
 }
 
-func (b claudeBuilder) skillPreview(resource model.Resource) (PreviewFile, error) {
-	contents, err := readSource(resource)
+func (b claudeBuilder) skillPreview(resource model.Resource) ([]PreviewFile, error) {
+	files, err := skillbundle.Files(resource.SourcePath)
 	if err != nil {
-		return PreviewFile{}, err
+		return nil, err
 	}
-	var buf bytes.Buffer
-	writeLine(&buf, "<!-- Generated Claude skill candidate from %s. Review required. -->", resource.ID)
-	writeLine(&buf, "")
-	buf.Write(bytes.TrimSpace(redactSourceLines(contents)))
-	writeLine(&buf, "")
-	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".claude", "skills", safeName(resource), "SKILL.md")), Contents: buf.Bytes()}, nil
+	out := make([]PreviewFile, 0, len(files))
+	for _, file := range files {
+		contents := redactSourceLines(file.Contents)
+		if file.RelativePath == "SKILL.md" {
+			var buf bytes.Buffer
+			writeLine(&buf, "<!-- Generated Claude skill candidate from %s. Review required. -->", resource.ID)
+			writeLine(&buf, "")
+			buf.Write(bytes.TrimSpace(contents))
+			writeLine(&buf, "")
+			contents = buf.Bytes()
+		}
+		out = append(out, PreviewFile{
+			Path:     filepath.ToSlash(filepath.Join(".claude", "skills", safeName(resource), filepath.FromSlash(file.RelativePath))),
+			Contents: contents,
+		})
+	}
+	return out, nil
 }
 
 func (b claudeBuilder) commandPreview(resource model.Resource) (PreviewFile, error) {

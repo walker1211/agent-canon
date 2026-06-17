@@ -86,6 +86,46 @@ func TestBuildSkipsMissingCodexTargets(t *testing.T) {
 	}
 }
 
+func TestBuildSkillSnapshotsHashBundleFiles(t *testing.T) {
+	project := t.TempDir()
+	claudeSkill := writeSnapshotFile(t, project, filepath.Join(".claude", "skills", "review", "SKILL.md"), "# Review\n")
+	writeSnapshotFile(t, project, filepath.Join(".claude", "skills", "review", "references", "usage.md"), "Use v1\n")
+	codexSkill := writeSnapshotFile(t, project, filepath.Join(".agents", "skills", "review", "SKILL.md"), "# Review\n")
+	writeSnapshotFile(t, project, filepath.Join(".agents", "skills", "review", "references", "usage.md"), "Use v1\n")
+	report := model.ScanReport{Project: project, Resources: []model.Resource{{
+		ID:             "skill:project-review",
+		Kind:           model.KindSkill,
+		Scope:          model.ScopeProject,
+		SourcePath:     claudeSkill,
+		TargetPathHint: codexSkill,
+		Status:         model.StatusPartial,
+		Strategy:       "convert-skill-with-review",
+	}}}
+
+	first, err := Build(report)
+	if err != nil {
+		t.Fatalf("Build first returned error: %v", err)
+	}
+	if !strings.Contains(first.Claude.Resources[0].NormalizedText, "references/usage.md") {
+		t.Fatalf("Claude skill snapshot did not include bundle path:\n%s", first.Claude.Resources[0].NormalizedText)
+	}
+	if !strings.Contains(first.Codex.Resources[0].NormalizedText, "references/usage.md") {
+		t.Fatalf("Codex skill snapshot did not include bundle path:\n%s", first.Codex.Resources[0].NormalizedText)
+	}
+
+	writeSnapshotFile(t, project, filepath.Join(".claude", "skills", "review", "references", "usage.md"), "Use v2\n")
+	second, err := Build(report)
+	if err != nil {
+		t.Fatalf("Build second returned error: %v", err)
+	}
+	if first.Claude.Resources[0].ContentHash == second.Claude.Resources[0].ContentHash {
+		t.Fatalf("Claude skill bundle hash did not change after reference edit")
+	}
+	if first.Codex.Resources[0].ContentHash != second.Codex.Resources[0].ContentHash {
+		t.Fatalf("Codex skill bundle hash changed without target edit")
+	}
+}
+
 func TestBuildRedactsDangerousResourceContent(t *testing.T) {
 	project := t.TempDir()
 	secret := "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_1234567890ABCDE"

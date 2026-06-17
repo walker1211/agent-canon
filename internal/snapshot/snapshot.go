@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
+	"github.com/zhangyoujun/agent-canon/internal/skillbundle"
 )
 
 type Set struct {
@@ -67,7 +69,7 @@ func buildClaudeStates(resources []model.Resource) ([]model.ResourceState, []mod
 	for _, resource := range resources {
 		state := resourceState(resource, "claude", resource.SourcePath)
 		if storesSourceContent(resource.Kind) {
-			stateWarnings, err := addNormalizedFileContent(&state, resource.SourcePath)
+			stateWarnings, err := addNormalizedResourceContent(&state, resource.SourcePath)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -95,7 +97,7 @@ func buildCodexStates(scan model.ScanReport) ([]model.ResourceState, []model.War
 			}
 			state := resourceState(resource, "codex", path)
 			state.TargetPathHint = path
-			stateWarnings, err := addNormalizedFileContent(&state, path)
+			stateWarnings, err := addNormalizedResourceContent(&state, path)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -182,6 +184,13 @@ func resourceState(resource model.Resource, tool string, path string) model.Reso
 	}
 }
 
+func addNormalizedResourceContent(state *model.ResourceState, path string) ([]model.Warning, error) {
+	if state.Kind == model.KindSkill && filepath.Base(path) == "SKILL.md" {
+		return addNormalizedSkillBundleContent(state, path)
+	}
+	return addNormalizedFileContent(state, path)
+}
+
 func addNormalizedFileContent(state *model.ResourceState, path string) ([]model.Warning, error) {
 	contents, ok, err := readRegularFile(path)
 	if err != nil {
@@ -190,15 +199,35 @@ func addNormalizedFileContent(state *model.ResourceState, path string) ([]model.
 	if !ok {
 		return nil, nil
 	}
+	return setNormalizedContent(state, contents), nil
+}
+
+func addNormalizedSkillBundleContent(state *model.ResourceState, path string) ([]model.Warning, error) {
+	files, err := skillbundle.Files(path)
+	if err != nil {
+		return nil, fmt.Errorf("read skill bundle for %s: %w", state.ID, err)
+	}
+	var buf bytes.Buffer
+	for i, file := range files {
+		if i > 0 {
+			buf.WriteString("\n\n")
+		}
+		fmt.Fprintf(&buf, "## skill-bundle-file: %s\n", file.RelativePath)
+		buf.Write(file.Contents)
+	}
+	return setNormalizedContent(state, buf.Bytes()), nil
+}
+
+func setNormalizedContent(state *model.ResourceState, contents []byte) []model.Warning {
 	normalized := NormalizeContent(contents)
 	state.NormalizedText = normalized.Text
 	state.ContentHash = normalized.ContentHash
 	if !normalized.SecretRedacted {
-		return nil, nil
+		return nil
 	}
 	warning := model.Warning{Code: "secret-redacted", Message: "resource content contained a redacted secret"}
 	state.Warnings = appendWarningIfMissing(state.Warnings, warning)
-	return []model.Warning{warning}, nil
+	return []model.Warning{warning}
 }
 
 func readRegularFile(path string) ([]byte, bool, error) {
