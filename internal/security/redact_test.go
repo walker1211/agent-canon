@@ -36,6 +36,10 @@ func TestIsSecretKeyIgnoresNonSecretKeys(t *testing.T) {
 		"endpoint",
 		"model",
 		"timeout",
+		"tokens",
+		"total_tokens",
+		"token_count",
+		"outputTokenCount",
 	}
 
 	for _, key := range tests {
@@ -44,6 +48,23 @@ func TestIsSecretKeyIgnoresNonSecretKeys(t *testing.T) {
 				t.Fatalf("IsSecretKey(%q) = true, want false", key)
 			}
 		})
+	}
+}
+
+func TestRedactContentPreservesTokenMetricFields(t *testing.T) {
+	input := strings.Join([]string{
+		`  "total_tokens": 84852,`,
+		`  "tokens": {"mean": 3800, "stddev": 400}`,
+		`if not result.get("tokens"):`,
+		`    result["tokens"] = metrics.get("output_chars", 0)`,
+	}, "\n")
+
+	got, redacted := RedactContent(input)
+	if redacted {
+		t.Fatalf("RedactContent redacted = true, want false; got %q", got)
+	}
+	if got != input {
+		t.Fatalf("RedactContent = %q, want original %q", got, input)
 	}
 }
 

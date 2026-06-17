@@ -3,22 +3,10 @@ package security
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const RedactedValue = "<REDACTED>"
-
-var secretKeyMarkers = []string{
-	"secret",
-	"token",
-	"password",
-	"auth",
-	"credential",
-	"private_key",
-	"api_key",
-	"openai_api_key",
-	"anthropic_api_key",
-	"github_token",
-}
 
 var inlineSecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),
@@ -28,13 +16,66 @@ var inlineSecretPatterns = []*regexp.Regexp{
 }
 
 func IsSecretKey(key string) bool {
-	normalized := strings.ToLower(key)
-	for _, marker := range secretKeyMarkers {
-		if strings.Contains(normalized, marker) {
+	words := keyWords(key)
+	for i, word := range words {
+		switch word {
+		case "secret", "password", "auth", "authorization", "credential", "credentials":
+			return true
+		case "token":
+			if isSecretTokenWord(words, i) {
+				return true
+			}
+		}
+	}
+	return hasAdjacentWords(words, "private", "key") || hasAdjacentWords(words, "api", "key")
+}
+
+func keyWords(key string) []string {
+	var out strings.Builder
+	var previous rune
+	for i, r := range key {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(previous) || unicode.IsDigit(previous)) {
+				out.WriteByte(' ')
+			}
+			out.WriteRune(unicode.ToLower(r))
+		} else {
+			out.WriteByte(' ')
+		}
+		previous = r
+	}
+	return strings.Fields(out.String())
+}
+
+func hasAdjacentWords(words []string, first string, second string) bool {
+	for i := 0; i+1 < len(words); i++ {
+		if words[i] == first && words[i+1] == second {
 			return true
 		}
 	}
 	return false
+}
+
+func isSecretTokenWord(words []string, index int) bool {
+	if len(words) == 1 {
+		return true
+	}
+	if index > 0 && isTokenQualifier(words[index-1]) {
+		return true
+	}
+	if index > 1 && words[index-2] == "git" && (words[index-1] == "hub" || words[index-1] == "lab") {
+		return true
+	}
+	return index+1 < len(words) && words[index+1] == "value"
+}
+
+func isTokenQualifier(word string) bool {
+	switch word {
+	case "access", "auth", "bearer", "github", "gitlab", "id", "refresh", "slack":
+		return true
+	default:
+		return false
+	}
 }
 
 func RedactIfSecret(key string, value string) (string, bool) {
