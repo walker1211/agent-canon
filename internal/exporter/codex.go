@@ -11,6 +11,7 @@ import (
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/security"
+	"github.com/zhangyoujun/agent-canon/internal/skillbundle"
 )
 
 type PreviewFile struct {
@@ -56,11 +57,11 @@ func (b codexBuilder) files() ([]PreviewFile, error) {
 		}
 		switch resource.Kind {
 		case model.KindSkill:
-			file, err := b.skillPreview(resource)
+			skillFiles, err := b.skillPreview(resource)
 			if err != nil {
 				return nil, err
 			}
-			files = append(files, file)
+			files = append(files, skillFiles...)
 		case model.KindCommand:
 			file, err := b.commandPreview(resource)
 			if err != nil {
@@ -132,15 +133,26 @@ func (b codexBuilder) agentsMarkdown() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (b codexBuilder) skillPreview(resource model.Resource) (PreviewFile, error) {
-	contents, err := readSource(resource)
+func (b codexBuilder) skillPreview(resource model.Resource) ([]PreviewFile, error) {
+	files, err := skillbundle.Files(resource.SourcePath)
 	if err != nil {
-		return PreviewFile{}, err
+		return nil, err
 	}
-	var buf bytes.Buffer
-	buf.Write(bytes.TrimSpace(redactSourceLines(contents)))
-	writeLine(&buf, "")
-	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), "SKILL.md")), Contents: buf.Bytes()}, nil
+	out := make([]PreviewFile, 0, len(files))
+	for _, file := range files {
+		contents := redactSourceLines(file.Contents)
+		if file.RelativePath == "SKILL.md" {
+			var buf bytes.Buffer
+			buf.Write(bytes.TrimSpace(contents))
+			writeLine(&buf, "")
+			contents = buf.Bytes()
+		}
+		out = append(out, PreviewFile{
+			Path:     filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), filepath.FromSlash(file.RelativePath))),
+			Contents: contents,
+		})
+	}
+	return out, nil
 }
 
 func (b codexBuilder) commandPreview(resource model.Resource) (PreviewFile, error) {

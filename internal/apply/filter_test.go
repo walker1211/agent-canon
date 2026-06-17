@@ -26,6 +26,27 @@ func TestFilterChangesKeepsOnlySelectedGroups(t *testing.T) {
 	}
 }
 
+func TestFilterChangesDoesNotTreatSkillBundleAgentFilesAsAgents(t *testing.T) {
+	root := t.TempDir()
+	roots := applypkg.FilterRoots{Project: filepath.Join(root, "project"), Home: filepath.Join(root, "home", ".codex")}
+	agent := filepath.Join(roots.Home, "agents", "review.toml")
+	skillAgent := filepath.Join(roots.Home, "skills", "skill-creator", "agents", "analyzer.md")
+	changes := []applypkg.FileChange{
+		change(agent, model.ScopeGlobal),
+		change(skillAgent, model.ScopeGlobal),
+	}
+
+	filteredAgents := applypkg.FilterChanges(changes, applypkg.ApplyFilters{Only: []string{"agents"}}, roots)
+	if len(filteredAgents) != 1 || filteredAgents[0].Path != agent {
+		t.Fatalf("agents filter = %#v, want only real agent target", filteredAgents)
+	}
+
+	filteredSkills := applypkg.FilterChanges(changes, applypkg.ApplyFilters{Only: []string{"skills"}}, roots)
+	if len(filteredSkills) != 1 || filteredSkills[0].Path != skillAgent {
+		t.Fatalf("skills filter = %#v, want skill bundle agent file", filteredSkills)
+	}
+}
+
 func TestFilterChangesAppliesOnlyBeforeExclude(t *testing.T) {
 	root := t.TempDir()
 	roots := applypkg.FilterRoots{Project: filepath.Join(root, "project"), Home: filepath.Join(root, "home", ".claude")}
@@ -70,6 +91,7 @@ func TestGroupGlobalChangesUsesStableDogfoodingGroups(t *testing.T) {
 		change(filepath.Join(root, ".codex", "AGENTS.md"), model.ScopeGlobal),
 		change(filepath.Join(root, ".codex", "agents", "review.toml"), model.ScopeGlobal),
 		change(filepath.Join(root, ".codex", "skills", "review", "SKILL.md"), model.ScopeGlobal),
+		change(filepath.Join(root, ".codex", "skills", "skill-creator", "agents", "analyzer.md"), model.ScopeGlobal),
 		change(filepath.Join(root, "project", "AGENTS.md"), model.ScopeProject),
 	}
 
@@ -78,7 +100,7 @@ func TestGroupGlobalChangesUsesStableDogfoodingGroups(t *testing.T) {
 	for _, group := range groups {
 		got = append(got, group.Name+":"+strconv.Itoa(len(group.Changes)))
 	}
-	if strings.Join(got, ",") != "root:1,config:1,agents:1,skills:1" {
+	if strings.Join(got, ",") != "root:1,config:1,agents:1,skills:2" {
 		t.Fatalf("groups = %#v, want stable root/config/agents/skills groups", groups)
 	}
 }

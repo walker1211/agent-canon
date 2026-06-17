@@ -214,6 +214,32 @@ func TestBuildCodexPreviewPreservesSkillFrontmatter(t *testing.T) {
 	}
 }
 
+func TestBuildCodexPreviewCopiesSkillBundleFiles(t *testing.T) {
+	skillDir := filepath.Join(t.TempDir(), "bundle-skill")
+	sourcePath := filepath.Join(skillDir, "SKILL.md")
+	writePreviewSourceFile(t, sourcePath, "# Bundle Skill\n")
+	writePreviewSourceFile(t, filepath.Join(skillDir, "references", "usage.md"), "Use token "+fixtureSecret+"\n")
+	writePreviewSourceFile(t, filepath.Join(skillDir, ".DS_Store"), "ignored\n")
+	writePreviewSourceFile(t, filepath.Join(skillDir, ".hidden", "secret.md"), "ignored\n")
+
+	preview := buildSyntheticPreview(t, model.Resource{
+		ID:         "skill:global-bundle-skill",
+		Kind:       model.KindSkill,
+		Scope:      model.ScopeGlobal,
+		SourcePath: sourcePath,
+		Status:     model.StatusPartial,
+		Strategy:   "convert-skill-with-review",
+	})
+
+	requireFile(t, preview, ".agents/skills/bundle-skill/SKILL.md")
+	reference := string(requireFile(t, preview, ".agents/skills/bundle-skill/references/usage.md").Contents)
+	if strings.Contains(reference, fixtureSecret) || !strings.Contains(reference, "<REDACTED>") {
+		t.Fatalf("bundle reference was not redacted:\n%s", reference)
+	}
+	assertNoFile(t, preview, ".agents/skills/bundle-skill/.DS_Store")
+	assertNoFile(t, preview, ".agents/skills/bundle-skill/.hidden/secret.md")
+}
+
 func TestBuildCodexPreviewGeneratesPartialAgentPreview(t *testing.T) {
 	sourcePath := writeTempFile(t, "reviewer.md", "# Reviewer\n\nReview code.\n")
 	preview := buildSyntheticPreview(t, model.Resource{
@@ -476,13 +502,18 @@ func buildSyntheticPreviewResultWithWarnings(t *testing.T, warnings []model.Warn
 func writeTempFile(t *testing.T, relativePath string, contents string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), relativePath)
+	writePreviewSourceFile(t, path, contents)
+	return path
+}
+
+func writePreviewSourceFile(t *testing.T, path string, contents string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create parent for %s: %v", path, err)
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
-	return path
 }
 
 func requireFile(t *testing.T, preview exporter.CodexPreview, path string) exporter.PreviewFile {

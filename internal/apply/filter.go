@@ -122,7 +122,7 @@ func matchesGroup(path string, group string) bool {
 		base := filepath.Base(path)
 		return base == "settings.json" || base == "config.toml"
 	case GroupAgents:
-		return hasComponent(path, "agents")
+		return hasComponent(path, "agents") && !hasComponent(path, "skills")
 	case GroupSkills:
 		return hasComponent(path, "skills")
 	default:
