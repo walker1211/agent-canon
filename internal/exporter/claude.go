@@ -202,21 +202,8 @@ func (b claudeBuilder) pathScopedRulePreview(resource model.Resource) (PreviewFi
 	if err != nil {
 		return PreviewFile{}, err
 	}
-	var buf bytes.Buffer
-	writeLine(&buf, "---")
-	if len(rule.Paths) == 0 {
-		writeLine(&buf, "paths: []")
-	} else {
-		writeLine(&buf, "paths:")
-		for _, path := range rule.Paths {
-			writeLine(&buf, "  - %q", path)
-		}
-	}
-	writeLine(&buf, "---")
-	writeLine(&buf, "")
-	buf.Write(bytes.TrimSpace(redactSourceLines(rule.Body)))
-	writeLine(&buf, "")
-	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".claude", "rules", claudeRuleName(resource)+".md")), Contents: buf.Bytes()}, nil
+	rule.Body = redactSourceLines(rule.Body)
+	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".claude", "rules", claudeRuleName(resource)+".md")), Contents: ruleconv.ClaudeRuleDocument(rule)}, nil
 }
 
 func readPathScopedRuleForClaude(resource model.Resource) (ruleconv.PathScopedRule, error) {

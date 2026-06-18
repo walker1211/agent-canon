@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/zhangyoujun/agent-canon/internal/app"
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
 
@@ -441,6 +442,90 @@ func TestExportClaudeWritesPreviewTreeAndLeavesFixtureInputsUnchanged(t *testing
 		t.Fatalf("stdout missing Claude export summary: %q", stdout.String())
 	}
 	assertFilesUnchanged(t, fixture.root, before)
+}
+
+func TestPathScopedRuleRoundTripsThroughCodexSkillAndClaudeRulePreview(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, ".claude")
+	codexHome := filepath.Join(root, ".codex")
+	mustMkdir(t, project)
+	mustMkdir(t, claudeHome)
+	mustMkdir(t, codexHome)
+
+	claudeRulePath := filepath.Join(claudeHome, "rules", "go-development.md")
+	mustWriteFile(t, claudeRulePath, `---
+paths:
+  - "**/*.go"
+  - "go.mod"
+---
+
+# Go Rule
+
+Use Go-specific guidance.
+`)
+	codexPreview := filepath.Join(t.TempDir(), "codex-preview")
+	var codexStdout, codexStderr bytes.Buffer
+
+	code := app.Run([]string{"export", "codex", "--project", project, "--claude-home", claudeHome, "--codex-home", codexHome, "--out", codexPreview}, project, root, &codexStdout, &codexStderr)
+	if code != 0 {
+		t.Fatalf("export codex exit code = %d, want 0; stdout=%q stderr=%q", code, codexStdout.String(), codexStderr.String())
+	}
+	skillPath := filepath.Join(codexPreview, ".agents", "skills", "go-development", "SKILL.md")
+	skill := readFileString(t, skillPath)
+	for _, want := range []string{
+		"source_strategy: convert-path-scoped-rule-to-skill",
+		"source_paths:",
+		"    - \"**/*.go\"",
+		"    - \"go.mod\"",
+		"# Go Rule",
+	} {
+		if !strings.Contains(skill, want) {
+			t.Fatalf("generated Codex skill missing %q in:\n%s", want, skill)
+		}
+	}
+	if agents := readFileString(t, filepath.Join(codexPreview, "AGENTS.md")); strings.Contains(agents, "Use Go-specific guidance.") {
+		t.Fatalf("AGENTS.md aggregated path-scoped rule body unexpectedly:\n%s", agents)
+	}
+
+	installedSkillPath := filepath.Join(codexpath.UserSkillsRoot(codexHome), "go-development", "SKILL.md")
+	mustWriteFile(t, installedSkillPath, skill)
+	mustWriteFile(t, claudeRulePath, `---
+paths:
+  - "stale/**/*.go"
+---
+
+# Stale Rule
+
+Do not use this stale source.
+`)
+	claudePreview := filepath.Join(t.TempDir(), "claude-preview")
+	var claudeStdout, claudeStderr bytes.Buffer
+
+	code = app.Run([]string{"export", "claude", "--project", project, "--claude-home", claudeHome, "--codex-home", codexHome, "--out", claudePreview}, project, root, &claudeStdout, &claudeStderr)
+	if code != 0 {
+		t.Fatalf("export claude exit code = %d, want 0; stdout=%q stderr=%q", code, claudeStdout.String(), claudeStderr.String())
+	}
+	roundTrippedRule := readFileString(t, filepath.Join(claudePreview, ".claude", "rules", "go-development.md"))
+	for _, want := range []string{
+		"paths:",
+		"  - \"**/*.go\"",
+		"  - \"go.mod\"",
+		"# Go Rule",
+		"Use Go-specific guidance.",
+	} {
+		if !strings.Contains(roundTrippedRule, want) {
+			t.Fatalf("round-tripped Claude rule missing %q in:\n%s", want, roundTrippedRule)
+		}
+	}
+	for _, unwanted := range []string{"stale/**/*.go", "Stale Rule", "agent_canon"} {
+		if strings.Contains(roundTrippedRule, unwanted) {
+			t.Fatalf("round-tripped Claude rule contains %q unexpectedly:\n%s", unwanted, roundTrippedRule)
+		}
+	}
+	if claude := readFileString(t, filepath.Join(claudePreview, "CLAUDE.md")); strings.Contains(claude, "Use Go-specific guidance.") {
+		t.Fatalf("CLAUDE.md aggregated path-scoped rule body unexpectedly:\n%s", claude)
+	}
 }
 
 func TestExportCodexRejectsExistingNonEmptyPreviewDir(t *testing.T) {

@@ -191,32 +191,14 @@ func (b codexBuilder) pathScopedRuleSkillPreview(resource model.Resource) (Previ
 		return PreviewFile{}, err
 	}
 	rule := ruleconv.FromClaude(contents)
-	var buf bytes.Buffer
-	writeLine(&buf, "---")
-	writeLine(&buf, "name: %s", safeName(resource))
-	writeLine(&buf, "description: >-")
-	writeLine(&buf, "  %s", pathScopedRuleDescription(resource.ID, rule.Paths))
-	writeLine(&buf, "agent_canon:")
-	writeLine(&buf, "  source_tool: claude")
-	writeLine(&buf, "  source_kind: Rule")
-	writeLine(&buf, "  source_id: %s", resource.ID)
-	writeLine(&buf, "  source_scope: %s", resource.Scope)
-	writeLine(&buf, "  source_strategy: %s", resource.Strategy)
-	if len(rule.Paths) == 0 {
-		writeLine(&buf, "  source_paths: []")
-	} else {
-		writeLine(&buf, "  source_paths:")
-		for _, path := range rule.Paths {
-			writeLine(&buf, "    - %q", path)
-		}
-	}
-	writeLine(&buf, "---")
-	writeLine(&buf, "")
-	writeLine(&buf, "<!-- Generated Codex skill from Claude path-scoped rule %s. -->", resource.ID)
-	writeLine(&buf, "")
-	buf.Write(bytes.TrimSpace(redactSourceLines(rule.Body)))
-	writeLine(&buf, "")
-	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), "SKILL.md")), Contents: buf.Bytes()}, nil
+	rule.Body = redactSourceLines(rule.Body)
+	contents = ruleconv.CodexSkillDocument(rule, ruleconv.CodexSkillMetadata{
+		Name:           safeName(resource),
+		ResourceID:     resource.ID,
+		SourceScope:    string(resource.Scope),
+		SourceStrategy: resource.Strategy,
+	})
+	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), "SKILL.md")), Contents: contents}, nil
 }
 
 func (b codexBuilder) agentPreview(resource model.Resource) PreviewFile {
@@ -229,13 +211,6 @@ func (b codexBuilder) agentPreview(resource model.Resource) PreviewFile {
 	writeLine(&buf, "# kind = %q", resource.Kind)
 	writeLine(&buf, "# scope = %q", resource.Scope)
 	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".codex", "agents", safeName(resource)+".toml")), Contents: buf.Bytes()}
-}
-
-func pathScopedRuleDescription(resourceID string, paths []string) string {
-	if len(paths) == 0 {
-		return "Use when this Claude path-scoped rule applies. Converted from Claude path-scoped rule " + resourceID + "."
-	}
-	return "Use when working with files matching " + strings.Join(paths, ", ") + ". Converted from Claude path-scoped rule " + resourceID + "."
 }
 
 func (b codexBuilder) configTOML() []byte {

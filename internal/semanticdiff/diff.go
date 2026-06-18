@@ -11,6 +11,8 @@ import (
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
 
+const legacyReviewPathScopedRuleStrategy = "review-path-scoped-rule"
+
 type Input struct {
 	BaseClaude    model.SnapshotReport
 	BaseCodex     model.SnapshotReport
@@ -143,7 +145,7 @@ func isAgentsAggregateState(state *model.ResourceState) bool {
 		return false
 	}
 	switch state.Strategy {
-	case "append-to-agents-md", "merge-section-into-agents-md", "merge-rule-into-agents-md", "review-path-scoped-rule":
+	case "append-to-agents-md", "merge-section-into-agents-md", "merge-rule-into-agents-md", legacyReviewPathScopedRuleStrategy:
 		return true
 	default:
 		return false
@@ -156,7 +158,7 @@ func classifyConflict(changedOurs bool, changedTheirs bool, states ...*model.Res
 	}
 	ours := states[2]
 	theirs := states[3]
-	if currentStatesEquivalent(ours, theirs) || isSkippedSession(states...) || isCurrentReviewPathScopedRule(ours, theirs) {
+	if currentStatesEquivalent(ours, theirs) || isSkippedSession(states...) || isLegacyReviewPathScopedRule(ours, theirs) {
 		return "", false
 	}
 	if hasSecurityRisk(states...) {
@@ -206,13 +208,15 @@ func isPluginAdaptation(states ...*model.ResourceState) bool {
 	return found
 }
 
-func isCurrentReviewPathScopedRule(states ...*model.ResourceState) bool {
+// isLegacyReviewPathScopedRule keeps old snapshots quiet after path-scoped rules
+// moved from review-only AGENTS.md aggregation to converted Codex skills.
+func isLegacyReviewPathScopedRule(states ...*model.ResourceState) bool {
 	found := false
 	for _, state := range states {
 		if state == nil {
 			continue
 		}
-		if state.Kind != model.KindRule || state.Strategy != "review-path-scoped-rule" {
+		if state.Kind != model.KindRule || state.Strategy != legacyReviewPathScopedRuleStrategy {
 			return false
 		}
 		found = true
