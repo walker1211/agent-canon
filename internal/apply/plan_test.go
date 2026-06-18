@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	applypkg "github.com/zhangyoujun/agent-canon/internal/apply"
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/configmerge"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/planner"
@@ -85,7 +86,7 @@ func TestBuildCodexPlanFiltersGlobalChangesByGroup(t *testing.T) {
 
 	assertChangePath(t, plan, filepath.Join(scan.CodexHome, "config.toml"))
 	assertNoChangePath(t, plan, filepath.Join(scan.CodexHome, "AGENTS.md"))
-	assertNoChangePath(t, plan, filepath.Join(scan.CodexHome, "skills", "review", "SKILL.md"))
+	assertNoChangePath(t, plan, filepath.Join(codexpath.UserSkillsRoot(scan.CodexHome), "review", "SKILL.md"))
 }
 
 func TestBuildCodexPlanDoesNotInspectExcludedTargets(t *testing.T) {

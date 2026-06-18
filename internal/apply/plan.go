@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/configmerge"
 	"github.com/zhangyoujun/agent-canon/internal/exporter"
 	"github.com/zhangyoujun/agent-canon/internal/model"
@@ -294,7 +295,7 @@ func targetPath(root string, scope model.Scope, previewPath string) string {
 		return filepath.Join(root, "AGENTS.md")
 	}
 	if rest, ok := trimPathPrefix(clean, filepath.Join(".agents", "skills")); ok {
-		return filepath.Join(root, "skills", rest)
+		return filepath.Join(codexpath.UserSkillsRoot(root), rest)
 	}
 	if rest, ok := trimPathPrefix(clean, filepath.Join(".codex", "agents")); ok {
 		return filepath.Join(root, "agents", rest)

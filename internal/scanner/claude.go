@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
 
 func scanClaudeHome(claudeHome string, codexHome string, targets codexTargets) []model.Resource {
 	var resources []model.Resource
 	globalAgentsHint := filepath.Join(codexHome, "AGENTS.md")
+	globalSkillsRoot := codexpath.UserSkillsRoot(codexHome)
 
 	if path, ok := existingFile(filepath.Join(claudeHome, "CLAUDE.md")); ok {
 		resource := newResource("instruction:global-claude-md", model.KindInstruction, model.ScopeGlobal, path, globalAgentsHint, model.StatusCompatible, "append-to-agents-md")
@@ -39,8 +41,8 @@ func scanClaudeHome(claudeHome string, codexHome string, targets codexTargets) [
 		}
 	}
 
-	resources = append(resources, scanSkillDirs(filepath.Join(claudeHome, "skills"), model.ScopeGlobal, filepath.Join(codexHome, "skills"), "skill:global-")...)
-	resources = append(resources, scanCommandEntries(filepath.Join(claudeHome, "commands"), model.ScopeGlobal, "command:global-", filepath.Join(codexHome, "skills"))...)
+	resources = append(resources, markSystemSkillCollisions(scanSkillDirs(filepath.Join(claudeHome, "skills"), model.ScopeGlobal, globalSkillsRoot, "skill:global-"), codexSystemSkillNames(codexHome))...)
+	resources = append(resources, scanCommandEntries(filepath.Join(claudeHome, "commands"), model.ScopeGlobal, "command:global-", globalSkillsRoot)...)
 	resources = append(resources, scanAgentEntries(filepath.Join(claudeHome, "agents"), model.ScopeGlobal, "agent:global-", filepath.Join(codexHome, "agents"))...)
 	resources = append(resources, scanPluginEntries(filepath.Join(claudeHome, "plugins"), filepath.Join(codexHome, "plugins"))...)
 	resources = append(resources, scanSessionEntries(claudeHome, model.ScopeGlobal, "session:global-", []string{
@@ -101,6 +103,27 @@ func scanSkillDirs(root string, scope model.Scope, targetRoot string, idPrefix s
 		}
 		name := filepath.Base(filepath.Dir(path))
 		resources = append(resources, newResource(idPrefix+name, model.KindSkill, scope, path, filepath.Join(targetRoot, name, "SKILL.md"), model.StatusPartial, "convert-skill-with-review"))
+	}
+	return resources
+}
+
+func markSystemSkillCollisions(resources []model.Resource, systemSkills map[string]string) []model.Resource {
+	if len(systemSkills) == 0 {
+		return resources
+	}
+	for i := range resources {
+		name := filepath.Base(filepath.Dir(resources[i].SourcePath))
+		systemPath, ok := systemSkills[name]
+		if !ok {
+			continue
+		}
+		resources[i].Status = model.StatusUnsupported
+		resources[i].Strategy = "skip-codex-system-skill-collision"
+		resources[i].TargetPathHint = ""
+		resources[i].Warnings = append(resources[i].Warnings, model.Warning{
+			Code:    "codex-system-skill-collision",
+			Message: "Claude skill matches a Codex system skill and was not mirrored into user skills: " + systemPath,
+		})
 	}
 	return resources
 }

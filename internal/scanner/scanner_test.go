@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/planner"
 	"github.com/zhangyoujun/agent-canon/internal/scanner"
@@ -100,9 +101,9 @@ func TestScanWarnsWhenCodexTargetsExistForPartialResources(t *testing.T) {
 
 	writeFile(t, filepath.Join(codexHome, "config.toml"), "")
 	writeFile(t, filepath.Join(project, ".codex", "config.toml"), "")
-	writeFile(t, filepath.Join(codexHome, "skills", "global-build", "SKILL.md"), "")
+	writeFile(t, filepath.Join(codexpath.UserSkillsRoot(codexHome), "global-build", "SKILL.md"), "")
 	writeFile(t, filepath.Join(project, ".agents", "skills", "deploy", "SKILL.md"), "")
-	writeFile(t, filepath.Join(codexHome, "skills", "global-skill", "SKILL.md"), "")
+	writeFile(t, filepath.Join(codexpath.UserSkillsRoot(codexHome), "global-skill", "SKILL.md"), "")
 	writeFile(t, filepath.Join(project, ".agents", "skills", "project-skill", "SKILL.md"), "")
 	writeFile(t, filepath.Join(codexHome, "agents", "global-reviewer.toml"), "")
 	writeFile(t, filepath.Join(project, ".codex", "agents", "reviewer.toml"), "")
@@ -161,6 +162,38 @@ func TestScanIgnoresHiddenSystemEntries(t *testing.T) {
 		if strings.Contains(resource.SourcePath, ".DS_Store") || strings.HasSuffix(resource.TargetPathHint, string(filepath.Separator)+".toml") {
 			t.Fatalf("hidden system entry was scanned: %#v", resource)
 		}
+	}
+}
+
+func TestScanMarksGlobalSkillCollidingWithCodexSystemSkillUnsupported(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+
+	writeFile(t, filepath.Join(claudeHome, "skills", "skill-creator", "SKILL.md"), "# Claude Skill Creator\n")
+	writeFile(t, filepath.Join(codexHome, "skills", ".system", "skill-creator", "SKILL.md"), "# Codex Skill Creator\n")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	report, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	resource := requireResource(t, report.Resources, "skill:global-skill-creator")
+	if resource.Status != model.StatusUnsupported {
+		t.Fatalf("status = %q, want unsupported", resource.Status)
+	}
+	if resource.TargetPathHint != "" {
+		t.Fatalf("target hint = %q, want empty", resource.TargetPathHint)
+	}
+	if resource.Strategy != "skip-codex-system-skill-collision" {
+		t.Fatalf("strategy = %q, want system collision skip", resource.Strategy)
+	}
+	if !hasWarningCode(resource.Warnings, "codex-system-skill-collision") {
+		t.Fatalf("warnings missing codex-system-skill-collision: %#v", resource.Warnings)
 	}
 }
 
@@ -322,12 +355,12 @@ func TestScanPartialResourcesUseTargetHintsAndStableStrategies(t *testing.T) {
 	}{
 		{id: "command:project-deploy", targetPathHint: filepath.Join(report.Project, ".agents", "skills", "deploy", "SKILL.md"), strategy: "convert-command-to-skill-or-workflow"},
 		{id: "agent:project-reviewer", targetPathHint: filepath.Join(report.Project, ".codex", "agents", "reviewer.toml"), strategy: "rewrite-agent-schema"},
-		{id: "command:global-global-build", targetPathHint: filepath.Join(report.CodexHome, "skills", "global-build", "SKILL.md"), strategy: "convert-command-to-skill-or-workflow"},
+		{id: "command:global-global-build", targetPathHint: filepath.Join(codexpath.UserSkillsRoot(report.CodexHome), "global-build", "SKILL.md"), strategy: "convert-command-to-skill-or-workflow"},
 		{id: "agent:global-global-reviewer", targetPathHint: filepath.Join(report.CodexHome, "agents", "global-reviewer.toml"), strategy: "rewrite-agent-schema"},
 		{id: "plugin:global-sample-plugin", targetPathHint: filepath.Join(report.CodexHome, "plugins", "sample-plugin"), strategy: "review-plugin-adaptation"},
 		{id: "config:global-settings", targetPathHint: "", strategy: "review-settings-config"},
 		{id: "config:project-settings", targetPathHint: "", strategy: "review-settings-config"},
-		{id: "skill:global-global-skill", targetPathHint: filepath.Join(report.CodexHome, "skills", "global-skill", "SKILL.md"), strategy: "convert-skill-with-review"},
+		{id: "skill:global-global-skill", targetPathHint: filepath.Join(codexpath.UserSkillsRoot(report.CodexHome), "global-skill", "SKILL.md"), strategy: "convert-skill-with-review"},
 		{id: "skill:project-project-skill", targetPathHint: filepath.Join(report.Project, ".agents", "skills", "project-skill", "SKILL.md"), strategy: "convert-skill-with-review"},
 	}
 

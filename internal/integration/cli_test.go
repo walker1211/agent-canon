@@ -933,7 +933,7 @@ func TestApplyCodexGlobalDryRunOnlyConfigDoesNotWriteHome(t *testing.T) {
 			t.Fatalf("stdout missing %q:\n%s", want, text)
 		}
 	}
-	for _, notWant := range []string{filepath.Join(fixture.codexHome, "AGENTS.md"), filepath.Join(fixture.codexHome, "skills")} {
+	for _, notWant := range []string{filepath.Join(fixture.codexHome, "AGENTS.md"), filepath.Join(fixture.codexHome, "skills"), filepath.Join(fixture.home, ".agents", "skills")} {
 		if strings.Contains(text, notWant) {
 			t.Fatalf("stdout contains filtered global path %q:\n%s", notWant, text)
 		}
