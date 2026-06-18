@@ -15,9 +15,24 @@ Common migration risks:
 - Claude Code and Codex CLI do not store the same concepts in the same files.
 - Existing target configs may already contain model, sandbox, auth, provider, feature, or MCP settings.
 - Global homes may contain private local state and should not be written by default.
-- Some semantics, such as path-scoped rules, local settings, memory boundaries, and conflicting MCP entries, need review instead of blind conversion.
+- Some semantics, such as local settings, memory boundaries, hooks, permissions, and conflicting MCP entries, still need review instead of blind conversion.
 
 `agent-canon` handles migration as copy / generate / merge, not cutover. Original tool configuration is preserved, real writes require explicit confirmation, and writebacks keep rollback manifests.
+
+## Claude to Codex Mapping
+
+| Claude Code source | Codex CLI target | Current behavior |
+|---|---|---|
+| Global `CLAUDE.md` | Global `AGENTS.md` preview/writeback | Preserves instruction text as reviewed Codex instructions. |
+| Project `CLAUDE.md` | Project `AGENTS.md` preview/writeback | Preserves project instructions with project-local precedence. |
+| `~/.claude/rules/*.md` without `paths` | `AGENTS.md` sections | Merges always-on rules into Codex instruction text. |
+| `~/.claude/rules/*.md` with `paths` frontmatter | `.agents/skills/<rule>/SKILL.md` | Converts path-scoped rules into Codex skills with `source_paths`; generated skills can round-trip back to Claude rules. |
+| `~/.claude/skills/<skill>/` | `.agents/skills/<skill>/` | Copies the skill bundle as a Codex skill candidate, preserving bundled files. |
+| `~/.claude/commands/*.md` | `.agents/skills/<command>/SKILL.md` | Generates a lossy skill candidate for review. |
+| `~/.claude/agents/*.md` | `.codex/agents/*.toml` | Generates a schema-rewrite candidate for review. |
+| Claude MCP server entries | `.codex/config.toml` MCP entries | Redacts secrets; can merge MCP entries with `--merge-config` after review. |
+| Claude hooks and permissions | Migration report warnings | No lossless Codex equivalent; review manually. |
+| Claude local settings, memory, and session history | Review report or selected instructions | Not copied wholesale; migrate only durable, reviewed guidance. |
 
 ## Quick Start
 
