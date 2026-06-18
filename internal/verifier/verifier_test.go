@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
 
@@ -51,7 +52,7 @@ func TestVerifyCodexPassesGlobalFallbackTargets(t *testing.T) {
 	paths := newVerifyFixture(t)
 	writeFile(t, filepath.Join(paths.codexHome, "AGENTS.md"), "# Global AGENTS\n")
 	writeFile(t, filepath.Join(paths.codexHome, "config.toml"), "[mcp_servers.github]\ncommand = \"gh\"\n")
-	writeFile(t, filepath.Join(paths.codexHome, "skills", "review", "SKILL.md"), "# Review\n")
+	writeFile(t, filepath.Join(codexpath.UserSkillsRoot(paths.codexHome), "review", "SKILL.md"), "# Review\n")
 	writeFile(t, filepath.Join(paths.codexHome, "agents", "reviewer.toml"), "name = \"reviewer\"\n")
 
 	report, err := Verify(Options{Target: "codex", Project: paths.project, ClaudeHome: paths.claudeHome, CodexHome: paths.codexHome})
@@ -65,7 +66,7 @@ func TestVerifyCodexPassesGlobalFallbackTargets(t *testing.T) {
 	assertCheckPath(t, report, "codex-config-project", filepath.Join(paths.codexHome, "config.toml"))
 	assertCheckStatus(t, report, "codex-mcp-list", model.VerifyStatusPass)
 	assertCheckStatus(t, report, "codex-skills-project", model.VerifyStatusPass)
-	assertCheckPath(t, report, "codex-skills-project", filepath.Join(paths.codexHome, "skills"))
+	assertCheckPath(t, report, "codex-skills-project", codexpath.UserSkillsRoot(paths.codexHome))
 	assertCheckStatus(t, report, "codex-agents-project", model.VerifyStatusPass)
 	assertCheckPath(t, report, "codex-agents-project", filepath.Join(paths.codexHome, "agents"))
 	if report.Summary.Fail != 0 {

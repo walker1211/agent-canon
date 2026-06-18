@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
 
@@ -164,6 +165,11 @@ func rootForChange(input WriteInput, change FileChange) (string, string, error) 
 	case model.ScopeGlobal:
 		if strings.TrimSpace(input.CodexHome) == "" {
 			return "", "", fmt.Errorf("codex home is required for global apply target %s", change.Path)
+		}
+		if inside, err := isInsidePath(codexpath.UserSkillsRoot(input.CodexHome), change.Path); err != nil {
+			return "", "", err
+		} else if inside {
+			return filepath.Dir(filepath.Clean(input.CodexHome)), "user-home", nil
 		}
 		return input.CodexHome, "codex-home", nil
 	default:

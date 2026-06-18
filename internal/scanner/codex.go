@@ -3,6 +3,7 @@ package scanner
 import (
 	"path/filepath"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 )
 
@@ -34,6 +35,7 @@ func detectCodexTargets(project string, codexHome string) codexTargets {
 		addExistingTarget(&targets, path)
 	}
 	addExistingTargetGlobs(&targets,
+		filepath.Join(codexpath.UserSkillsRoot(codexHome), "*", "SKILL.md"),
 		filepath.Join(codexHome, "skills", "*", "SKILL.md"),
 		filepath.Join(project, ".agents", "skills", "*", "SKILL.md"),
 		filepath.Join(codexHome, "agents", "*"),
@@ -49,6 +51,22 @@ func detectCodexTargets(project string, codexHome string) codexTargets {
 		})
 	}
 	return targets
+}
+
+func codexSystemSkillNames(codexHome string) map[string]string {
+	matches, err := filepath.Glob(filepath.Join(codexHome, "skills", ".system", "*", "SKILL.md"))
+	if err != nil || len(matches) == 0 {
+		return nil
+	}
+	names := map[string]string{}
+	for _, match := range matches {
+		path, ok := existingFile(match)
+		if !ok {
+			continue
+		}
+		names[filepath.Base(filepath.Dir(path))] = path
+	}
+	return names
 }
 
 func addExistingTarget(targets *codexTargets, path string) {

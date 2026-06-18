@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/zhangyoujun/agent-canon/internal/codexpath"
 	"github.com/zhangyoujun/agent-canon/internal/model"
 	"github.com/zhangyoujun/agent-canon/internal/scanner"
 	"github.com/zhangyoujun/agent-canon/internal/security"
@@ -81,10 +82,10 @@ func verifyCodex(report *model.VerifyReport, project string, codexHome string, s
 		report,
 		"codex-skills-project",
 		filepath.Join(project, ".agents", "skills"),
-		filepath.Join(codexHome, "skills"),
+		codexpath.UserSkillsRoot(codexHome),
 		filepath.Join("*", "SKILL.md"),
 		"Codex skills directory is recognizable.",
-		"Global Codex skills directory is recognizable; no project skills directory is required for global Codex setup.",
+		"Global Codex user skills directory is recognizable; no project skills directory is required for global Codex setup.",
 		"Codex skills directory has not been generated yet.",
 		!scanOK || hasAnyResourceKind(scanReport, model.KindSkill, model.KindCommand),
 		"No Claude skills or commands found; no Codex skills directory is required for this migration.",
