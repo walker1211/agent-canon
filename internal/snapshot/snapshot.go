@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
+	"github.com/zhangyoujun/agent-canon/internal/ruleconv"
 	"github.com/zhangyoujun/agent-canon/internal/skillbundle"
 )
 
@@ -185,6 +186,9 @@ func resourceState(resource model.Resource, tool string, path string) model.Reso
 }
 
 func addNormalizedResourceContent(state *model.ResourceState, path string) ([]model.Warning, error) {
+	if state.Kind == model.KindRule && state.Strategy == "convert-path-scoped-rule-to-skill" {
+		return addNormalizedPathScopedRuleContent(state, path)
+	}
 	if state.Kind == model.KindSkill && filepath.Base(path) == "SKILL.md" {
 		return addNormalizedSkillBundleContent(state, path)
 	}
@@ -200,6 +204,21 @@ func addNormalizedFileContent(state *model.ResourceState, path string) ([]model.
 		return nil, nil
 	}
 	return setNormalizedContent(state, contents), nil
+}
+
+func addNormalizedPathScopedRuleContent(state *model.ResourceState, path string) ([]model.Warning, error) {
+	contents, ok, err := readRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	rule := ruleconv.FromClaude(contents)
+	if filepath.Base(path) == "SKILL.md" {
+		rule = ruleconv.FromCodexSkill(contents)
+	}
+	return setNormalizedContent(state, ruleconv.SemanticDocument(rule)), nil
 }
 
 func addNormalizedSkillBundleContent(state *model.ResourceState, path string) ([]model.Warning, error) {

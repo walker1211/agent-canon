@@ -260,7 +260,7 @@ func TestScanRejectsMalformedProjectSkipConfig(t *testing.T) {
 	}
 }
 
-func TestScanMarksPathScopedRulesForManualReview(t *testing.T) {
+func TestScanConvertsPathScopedRulesToCodexSkills(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	claudeHome := filepath.Join(root, "claude-home")
@@ -280,18 +280,50 @@ func TestScanMarksPathScopedRulesForManualReview(t *testing.T) {
 	}
 
 	rule := requireResource(t, report.Resources, "rule:global-go")
-	assertResource(t, rule, model.KindRule, model.ScopeGlobal, model.StatusPartial)
-	if rule.Strategy != "review-path-scoped-rule" {
-		t.Fatalf("rule strategy = %q, want review-path-scoped-rule", rule.Strategy)
+	assertResource(t, rule, model.KindRule, model.ScopeGlobal, model.StatusCompatible)
+	if rule.Strategy != "convert-path-scoped-rule-to-skill" {
+		t.Fatalf("rule strategy = %q, want convert-path-scoped-rule-to-skill", rule.Strategy)
 	}
-	if !hasWarningCode(rule.Warnings, "path-scoped-rule-review") {
-		t.Fatalf("rule warnings missing path-scoped-rule-review: %#v", rule.Warnings)
+	wantTarget := filepath.Join(codexpath.UserSkillsRoot(codexHome), "go", "SKILL.md")
+	if rule.TargetPathHint != wantTarget {
+		t.Fatalf("target hint = %q, want %q", rule.TargetPathHint, wantTarget)
+	}
+	if len(rule.Warnings) != 0 {
+		t.Fatalf("rule warnings = %#v, want none", rule.Warnings)
 	}
 
 	plan := planner.Build(report)
 	operation := requireOperation(t, plan.Operations, rule.ID)
-	if operation.Action != "manual" || !operation.RequiresReview {
-		t.Fatalf("operation = %#v, want manual review", operation)
+	if operation.Action != "create-or-merge" || operation.RequiresReview {
+		t.Fatalf("operation = %#v, want create-or-merge without review", operation)
+	}
+}
+
+func TestScanPathScopedRuleExistingTargetWarningUsesGeneratedSkill(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	claudeHome := filepath.Join(root, "claude-home")
+	codexHome := filepath.Join(root, "codex-home")
+	skillPath := filepath.Join(codexpath.UserSkillsRoot(codexHome), "go", "SKILL.md")
+
+	writeFile(t, filepath.Join(claudeHome, "rules", "go.md"), "---\npaths:\n  - \"**/*.go\"\n---\n\n# Go Rule\n")
+	writeFile(t, filepath.Join(codexHome, "AGENTS.md"), "# Existing global agents\n")
+	writeFile(t, skillPath, "# Existing Go Skill\n")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	report, err := scanner.Scan(scanner.Options{Project: project, ClaudeHome: claudeHome, CodexHome: codexHome})
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+
+	rule := requireResource(t, report.Resources, "rule:global-go")
+	if len(rule.Warnings) != 1 || rule.Warnings[0].Code != "existing-codex-target" || !strings.Contains(rule.Warnings[0].Message, skillPath) {
+		t.Fatalf("rule warnings = %#v, want existing generated skill target", rule.Warnings)
+	}
+	if strings.Contains(rule.Warnings[0].Message, filepath.Join(codexHome, "AGENTS.md")) {
+		t.Fatalf("rule warning still points at AGENTS.md: %#v", rule.Warnings)
 	}
 }
 
@@ -492,9 +524,9 @@ func TestScanRealWorldDiscoveryFixtureCoversCommandsAgentsPluginsRulesMemoryAndL
 	}
 
 	goRule := requireResource(t, report.Resources, "rule:global-go")
-	assertResource(t, goRule, model.KindRule, model.ScopeGlobal, model.StatusPartial)
-	if goRule.Strategy != "review-path-scoped-rule" {
-		t.Fatalf("go rule strategy = %q, want review-path-scoped-rule", goRule.Strategy)
+	assertResource(t, goRule, model.KindRule, model.ScopeGlobal, model.StatusCompatible)
+	if goRule.Strategy != "convert-path-scoped-rule-to-skill" {
+		t.Fatalf("go rule strategy = %q, want convert-path-scoped-rule-to-skill", goRule.Strategy)
 	}
 	styleRule := requireResource(t, report.Resources, "rule:global-style")
 	assertResource(t, styleRule, model.KindRule, model.ScopeGlobal, model.StatusCompatible)

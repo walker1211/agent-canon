@@ -15,6 +15,8 @@ var inlineSecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`),
 }
 
+var colonAssignmentPattern = regexp.MustCompile(`^(\s*["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?\s*:\s*).*$`)
+
 func IsSecretKey(key string) bool {
 	words := keyWords(key)
 	for i, word := range words {
@@ -107,8 +109,8 @@ func RedactContent(contents string) (string, bool) {
 }
 
 func redactContentLine(line string) (string, bool) {
-	if key, _, ok := strings.Cut(line, ":"); ok && IsSecretKey(strings.TrimSpace(key)) {
-		return key + ": " + RedactedValue, true
+	if matches := colonAssignmentPattern.FindStringSubmatch(line); matches != nil && IsSecretKey(matches[2]) {
+		return matches[1] + matches[2] + matches[3] + RedactedValue, true
 	}
 
 	trimmed := strings.TrimLeft(line, " \t")

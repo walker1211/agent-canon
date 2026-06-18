@@ -47,7 +47,7 @@ func TestBuildCodexPreviewAgentsContainsInstructionsAndRulesWithoutAbsolutePaths
 	}
 }
 
-func TestBuildCodexPreviewDoesNotFlattenPathScopedRules(t *testing.T) {
+func TestBuildCodexPreviewConvertsPathScopedRuleToSkill(t *testing.T) {
 	instructionPath := writeTempFile(t, "CLAUDE.md", "# Global\n\nAlways-on guidance.\n")
 	rulePath := writeTempFile(t, "go.md", "---\npaths:\n  - \"**/*.go\"\n---\n\n# Go Rule\n\nUse Go-specific guidance only when Go files are in scope.\n")
 	preview := buildSyntheticPreview(t,
@@ -64,12 +64,8 @@ func TestBuildCodexPreviewDoesNotFlattenPathScopedRules(t *testing.T) {
 			Kind:       model.KindRule,
 			Scope:      model.ScopeGlobal,
 			SourcePath: rulePath,
-			Status:     model.StatusPartial,
-			Strategy:   "review-path-scoped-rule",
-			Warnings: []model.Warning{{
-				Code:    "path-scoped-rule-review",
-				Message: "Claude rule uses paths frontmatter; review manually before placing it in an always-on Codex AGENTS.md file.",
-			}},
+			Status:     model.StatusCompatible,
+			Strategy:   "convert-path-scoped-rule-to-skill",
 		},
 	)
 
@@ -81,11 +77,37 @@ func TestBuildCodexPreviewDoesNotFlattenPathScopedRules(t *testing.T) {
 		t.Fatalf("AGENTS.md missing compatible instruction:\n%s", agents)
 	}
 
+	skill := string(requireFile(t, preview, ".agents/skills/go/SKILL.md").Contents)
+	for _, want := range []string{
+		"---\nname: go",
+		"description: >-",
+		"agent_canon:",
+		"source_tool: claude",
+		"source_kind: Rule",
+		"source_id: rule:global-go",
+		"source_paths:",
+		"- \"**/*.go\"",
+		"Use when working with files matching **/*.go.",
+		"Converted from Claude path-scoped rule rule:global-go.",
+		"# Go Rule",
+		"Use Go-specific guidance only when Go files are in scope.",
+	} {
+		if !strings.Contains(skill, want) {
+			t.Fatalf("generated skill missing %q in:\n%s", want, skill)
+		}
+	}
+	if strings.Contains(skill, "\npaths:") || strings.HasPrefix(skill, "paths:") {
+		t.Fatalf("generated skill leaked Claude paths frontmatter:\n%s", skill)
+	}
+
 	report := string(requireFile(t, preview, "migration-report.md").Contents)
-	for _, want := range []string{"rule:global-go", "review-required resources", "path-scoped-rule-review"} {
+	for _, want := range []string{".agents/skills/go/SKILL.md"} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("migration report missing %q in:\n%s", want, report)
 		}
+	}
+	if strings.Contains(report, "path-scoped-rule-review") {
+		t.Fatalf("migration report still marks converted rule for manual review:\n%s", report)
 	}
 }
 
