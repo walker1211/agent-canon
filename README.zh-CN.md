@@ -15,9 +15,24 @@ Claude Code 和 Codex CLI 的配置模型不同。推荐的黄金路径是先 sc
 - Claude Code 和 Codex CLI 不会把同一类概念放在同一套文件里。
 - 目标侧可能已经有 model、sandbox、auth、provider、feature 或 MCP 配置。
 - 全局 home 可能包含私有本地状态，不应该默认写入。
-- path-scoped rules、local settings、memory 边界和冲突 MCP entries 这类语义需要 review，不能盲目转换。
+- local settings、memory 边界、hooks、permissions 和冲突 MCP entries 这类语义仍然需要 review，不能盲目转换。
 
 `agent-canon` 把迁移处理成复制 / 生成 / 合并，而不是剪切或覆盖。原工具配置会保留，真实写入必须显式确认，写回会保留 rollback manifest。
+
+## Claude 到 Codex 映射
+
+| Claude Code 来源 | Codex CLI 目标 | 当前行为 |
+|---|---|---|
+| 全局 `CLAUDE.md` | 全局 `AGENTS.md` preview / writeback | 保留为经过审查的 Codex instructions。 |
+| 项目 `CLAUDE.md` | 项目 `AGENTS.md` preview / writeback | 保留项目指令，并保持项目级优先。 |
+| 不带 `paths` 的 `~/.claude/rules/*.md` | `AGENTS.md` sections | 合并为 Codex 常驻 instruction 文本。 |
+| 带 `paths` frontmatter 的 `~/.claude/rules/*.md` | `.agents/skills/<rule>/SKILL.md` | 转成带 `source_paths` 的 Codex skill；生成的 skill 可反向还原为 Claude rule。 |
+| `~/.claude/skills/<skill>/` | `.agents/skills/<skill>/` | 作为 Codex skill candidate 复制完整 bundle。 |
+| `~/.claude/commands/*.md` | `.agents/skills/<command>/SKILL.md` | 生成有损 skill candidate，需要 review。 |
+| `~/.claude/agents/*.md` | `.codex/agents/*.toml` | 生成 schema 重写 candidate，需要 review。 |
+| Claude MCP server entries | `.codex/config.toml` MCP entries | redact secrets；review 后可用 `--merge-config` 合并 MCP entries。 |
+| Claude hooks 和 permissions | Migration report warnings | Codex 无无损等价物，需要人工 review。 |
+| Claude local settings、memory、session history | Review report 或选定 instructions | 不整块复制，只迁移经过审查的长期有效 guidance。 |
 
 ## Quick Start
 
