@@ -43,6 +43,69 @@ func TestBuildClaudePreviewClaudeMDContainsInstructionsAndRulesWithoutAbsolutePa
 	}
 }
 
+func TestBuildClaudePreviewConvertsCodexPathScopedRuleSkillBackToClaudeRule(t *testing.T) {
+	claudeRulePath := writeTempFile(t, filepath.Join("rules", "go.md"), "---\npaths:\n  - \"old/**/*.go\"\n---\n\n# Old Go Rule\n\nOld source content.\n")
+	codexSkillPath := writeTempFile(t, filepath.Join("go", "SKILL.md"), `---
+name: go
+description: >-
+  Use when working with files matching **/*.go, go.mod. Converted from Claude path-scoped rule rule:global-go.
+agent_canon:
+  source_tool: claude
+  source_kind: Rule
+  source_id: rule:global-go
+  source_scope: global
+  source_strategy: convert-path-scoped-rule-to-skill
+  source_paths:
+    - "**/*.go"
+    - "go.mod"
+---
+
+<!-- Generated Codex skill from Claude path-scoped rule rule:global-go. -->
+
+# Go Rule
+
+Use Go-specific guidance only when Go files are in scope.
+`)
+	preview := buildSyntheticClaudePreview(t, model.Resource{
+		ID:             "rule:global-go",
+		Kind:           model.KindRule,
+		Scope:          model.ScopeGlobal,
+		SourcePath:     claudeRulePath,
+		TargetPathHint: codexSkillPath,
+		Status:         model.StatusCompatible,
+		Strategy:       "convert-path-scoped-rule-to-skill",
+	})
+
+	assertNoFile(t, preview, ".claude/skills/go/SKILL.md")
+	claude := string(requireFile(t, preview, "CLAUDE.md").Contents)
+	if strings.Contains(claude, "rule:global-go") || strings.Contains(claude, "Use Go-specific guidance only when Go files are in scope.") {
+		t.Fatalf("CLAUDE.md aggregated converted path-scoped rule:\n%s", claude)
+	}
+
+	rule := string(requireFile(t, preview, filepath.ToSlash(filepath.Join(".claude", "rules", "go.md"))).Contents)
+	for _, want := range []string{
+		"---\npaths:",
+		"- \"**/*.go\"",
+		"- \"go.mod\"",
+		"---\n\n# Go Rule",
+		"Use Go-specific guidance only when Go files are in scope.",
+	} {
+		if !strings.Contains(rule, want) {
+			t.Fatalf("generated Claude rule missing %q in:\n%s", want, rule)
+		}
+	}
+	for _, notWant := range []string{"agent_canon:", "source_paths:", "Generated Codex skill"} {
+		if strings.Contains(rule, notWant) {
+			t.Fatalf("generated Claude rule leaked Codex wrapper %q in:\n%s", notWant, rule)
+		}
+	}
+	for _, notWant := range []string{"old/**/*.go", "# Old Go Rule", "Old source content."} {
+		if strings.Contains(rule, notWant) {
+			t.Fatalf("generated Claude rule used stale Claude source %q in:\n%s", notWant, rule)
+		}
+	}
+}
+
 func TestBuildClaudePreviewUnsupportedFixtureReportsSkippedReviewResourcesWithoutGeneratingThem(t *testing.T) {
 	preview := buildClaudePreview(t, "unsupported")
 	report := string(requireFile(t, preview, "migration-report.md").Contents)

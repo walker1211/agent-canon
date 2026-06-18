@@ -317,6 +317,9 @@ func claudeTargetPath(root string, scope model.Scope, previewPath string) string
 	if rest, ok := trimPathPrefix(clean, filepath.Join(".claude", "skills")); ok {
 		return filepath.Join(root, "skills", rest)
 	}
+	if rest, ok := trimPathPrefix(clean, filepath.Join(".claude", "rules")); ok {
+		return filepath.Join(root, "rules", rest)
+	}
 	if rest, ok := trimPathPrefix(clean, filepath.Join(".claude", "commands")); ok {
 		return filepath.Join(root, "commands", rest)
 	}

@@ -3,11 +3,13 @@ package exporter
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
+	"github.com/zhangyoujun/agent-canon/internal/ruleconv"
 	"github.com/zhangyoujun/agent-canon/internal/security"
 	"github.com/zhangyoujun/agent-canon/internal/skillbundle"
 )
@@ -62,6 +64,15 @@ func (b claudeBuilder) files() ([]PreviewFile, error) {
 				return nil, err
 			}
 			files = append(files, file)
+		case model.KindRule:
+			if resource.Strategy != "convert-path-scoped-rule-to-skill" {
+				continue
+			}
+			file, err := b.pathScopedRulePreview(resource)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, file)
 		}
 	}
 
@@ -91,6 +102,9 @@ func (b claudeBuilder) claudeMarkdown() ([]byte, error) {
 			continue
 		}
 		if resource.Kind != model.KindInstruction && resource.Kind != model.KindRule {
+			continue
+		}
+		if resource.Kind == model.KindRule && resource.Strategy == "convert-path-scoped-rule-to-skill" {
 			continue
 		}
 		contents, err := readSource(resource)
@@ -181,6 +195,63 @@ func (b claudeBuilder) skillPreview(resource model.Resource) ([]PreviewFile, err
 		})
 	}
 	return out, nil
+}
+
+func (b claudeBuilder) pathScopedRulePreview(resource model.Resource) (PreviewFile, error) {
+	rule, err := readPathScopedRuleForClaude(resource)
+	if err != nil {
+		return PreviewFile{}, err
+	}
+	var buf bytes.Buffer
+	writeLine(&buf, "---")
+	if len(rule.Paths) == 0 {
+		writeLine(&buf, "paths: []")
+	} else {
+		writeLine(&buf, "paths:")
+		for _, path := range rule.Paths {
+			writeLine(&buf, "  - %q", path)
+		}
+	}
+	writeLine(&buf, "---")
+	writeLine(&buf, "")
+	buf.Write(bytes.TrimSpace(redactSourceLines(rule.Body)))
+	writeLine(&buf, "")
+	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".claude", "rules", claudeRuleName(resource)+".md")), Contents: buf.Bytes()}, nil
+}
+
+func readPathScopedRuleForClaude(resource model.Resource) (ruleconv.PathScopedRule, error) {
+	if resource.TargetPathHint != "" && filepath.Base(resource.TargetPathHint) == "SKILL.md" {
+		contents, err := os.ReadFile(resource.TargetPathHint)
+		if err == nil {
+			return ruleconv.FromCodexSkill(contents), nil
+		}
+		if !os.IsNotExist(err) {
+			return ruleconv.PathScopedRule{}, err
+		}
+	}
+	contents, err := readSource(resource)
+	if err != nil {
+		return ruleconv.PathScopedRule{}, err
+	}
+	if filepath.Base(resource.SourcePath) == "SKILL.md" {
+		return ruleconv.FromCodexSkill(contents), nil
+	}
+	return ruleconv.FromClaude(contents), nil
+}
+
+func claudeRuleName(resource model.Resource) string {
+	for _, prefix := range []string{"rule:global-", "rule:project-"} {
+		if name, ok := strings.CutPrefix(resource.ID, prefix); ok && name != "" {
+			return name
+		}
+	}
+	if filepath.Base(resource.SourcePath) == "SKILL.md" {
+		name := filepath.Base(filepath.Dir(resource.SourcePath))
+		if name != "." && name != string(filepath.Separator) && name != "" {
+			return name
+		}
+	}
+	return safeName(resource)
 }
 
 func (b claudeBuilder) commandPreview(resource model.Resource) (PreviewFile, error) {

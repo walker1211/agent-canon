@@ -431,6 +431,48 @@ func TestBuildClaudePlanIncludesGlobalFilesWhenEnabled(t *testing.T) {
 	assertClaudeChangePath(t, plan, filepath.Join(scan.ClaudeHome, "settings.json"))
 }
 
+func TestBuildClaudePlanMapsConvertedPathScopedRuleToGlobalRulesDir(t *testing.T) {
+	root := t.TempDir()
+	rule := resource(t, root, model.ScopeGlobal, model.KindRule, "rule:global-go", filepath.Join("claude-home", "rules", "go.md"), filepath.Join("codex-home", "skills", "go", "SKILL.md"), model.StatusCompatible, "---\npaths:\n  - \"old/**/*.go\"\n---\n\n# Old Go Rule\n")
+	rule.Strategy = "convert-path-scoped-rule-to-skill"
+	writeFile(t, rule.TargetPathHint, `---
+name: go
+agent_canon:
+  source_tool: claude
+  source_kind: Rule
+  source_id: rule:global-go
+  source_scope: global
+  source_strategy: convert-path-scoped-rule-to-skill
+  source_paths:
+    - "**/*.go"
+    - "go.mod"
+---
+
+<!-- Generated Codex skill from Claude path-scoped rule rule:global-go. -->
+
+# Go Rule
+
+Use Go-specific guidance.
+`)
+	scan := syntheticScan(t, root, rule)
+
+	plan, err := applypkg.BuildClaudePlan(applypkg.ClaudePlanInput{Scan: scan, Plan: planner.Build(scan), IncludeGlobal: true})
+	if err != nil {
+		t.Fatalf("BuildClaudePlan returned error: %v", err)
+	}
+
+	change := requireClaudeChange(t, plan, filepath.Join(scan.ClaudeHome, "rules", "go.md"))
+	contents := string(change.Contents)
+	for _, want := range []string{"paths:", "- \"**/*.go\"", "- \"go.mod\"", "# Go Rule", "Use Go-specific guidance."} {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("rule change missing %q in:\n%s", want, contents)
+		}
+	}
+	if strings.Contains(contents, "old/**/*.go") || strings.Contains(contents, "agent_canon:") {
+		t.Fatalf("rule change did not use cleaned Codex skill contents:\n%s", contents)
+	}
+}
+
 func TestBuildClaudePlanFiltersOnlyThenExclude(t *testing.T) {
 	root := t.TempDir()
 	scan := syntheticScan(t, root,
