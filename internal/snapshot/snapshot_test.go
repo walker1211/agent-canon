@@ -126,6 +126,60 @@ func TestBuildSkillSnapshotsHashBundleFiles(t *testing.T) {
 	}
 }
 
+func TestBuildPathScopedRuleSkillSnapshotsUseRuleSemantics(t *testing.T) {
+	project := t.TempDir()
+	claudeRule := writeSnapshotFile(t, project, filepath.Join(".claude", "rules", "go.md"), "---\npaths:\n  - \"**/*.go\"\n  - \"go.mod\"\n---\n\n# Go Rule\n\nUse Go-specific guidance.\n")
+	codexSkill := writeSnapshotFile(t, project, filepath.Join(".agents", "skills", "go", "SKILL.md"), `---
+name: go
+description: >-
+  Use when working with files matching **/*.go, go.mod. Converted from Claude path-scoped rule rule:global-go.
+agent_canon:
+  source_tool: claude
+  source_kind: Rule
+  source_id: rule:global-go
+  source_scope: global
+  source_strategy: convert-path-scoped-rule-to-skill
+  source_paths:
+    - "**/*.go"
+    - "go.mod"
+---
+
+<!-- Generated Codex skill from Claude path-scoped rule rule:global-go. -->
+
+# Go Rule
+
+Use Go-specific guidance.
+`)
+	report := model.ScanReport{Project: project, Resources: []model.Resource{{
+		ID:             "rule:global-go",
+		Kind:           model.KindRule,
+		Scope:          model.ScopeGlobal,
+		SourcePath:     claudeRule,
+		TargetPathHint: codexSkill,
+		Status:         model.StatusCompatible,
+		Strategy:       "convert-path-scoped-rule-to-skill",
+	}}}
+
+	set, err := Build(report)
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	claudeState := set.Claude.Resources[0]
+	codexState := set.Codex.Resources[0]
+	if claudeState.ContentHash == "" || claudeState.ContentHash != codexState.ContentHash {
+		t.Fatalf("path-scoped rule hashes differ:\nclaude=%#v\ncodex=%#v", claudeState, codexState)
+	}
+	for _, want := range []string{"## path-scoped-rule-paths\n**/*.go\ngo.mod", "## path-scoped-rule-body\n\n# Go Rule"} {
+		if !strings.Contains(claudeState.NormalizedText, want) || !strings.Contains(codexState.NormalizedText, want) {
+			t.Fatalf("normalized path-scoped rule missing %q:\nclaude=%q\ncodex=%q", want, claudeState.NormalizedText, codexState.NormalizedText)
+		}
+	}
+	if strings.Contains(codexState.NormalizedText, "agent_canon") || strings.Contains(codexState.NormalizedText, "Generated Codex skill") {
+		t.Fatalf("codex rule semantic snapshot includes generated wrapper:\n%s", codexState.NormalizedText)
+	}
+}
+
 func TestBuildRedactsDangerousResourceContent(t *testing.T) {
 	project := t.TempDir()
 	secret := "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz_1234567890ABCDE"

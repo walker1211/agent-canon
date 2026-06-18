@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/zhangyoujun/agent-canon/internal/model"
+	"github.com/zhangyoujun/agent-canon/internal/ruleconv"
 	"github.com/zhangyoujun/agent-canon/internal/security"
 	"github.com/zhangyoujun/agent-canon/internal/skillbundle"
 )
@@ -68,6 +69,15 @@ func (b codexBuilder) files() ([]PreviewFile, error) {
 				return nil, err
 			}
 			files = append(files, file)
+		case model.KindRule:
+			if resource.Strategy != "convert-path-scoped-rule-to-skill" {
+				continue
+			}
+			file, err := b.pathScopedRuleSkillPreview(resource)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, file)
 		case model.KindAgent:
 			files = append(files, b.agentPreview(resource))
 		}
@@ -114,6 +124,9 @@ func (b codexBuilder) agentsMarkdown() ([]byte, error) {
 			continue
 		}
 		if resource.Kind != model.KindInstruction && resource.Kind != model.KindRule {
+			continue
+		}
+		if resource.Kind == model.KindRule && resource.Strategy != "merge-rule-into-agents-md" {
 			continue
 		}
 		contents, err := readSource(resource)
@@ -172,6 +185,40 @@ func (b codexBuilder) commandPreview(resource model.Resource) (PreviewFile, erro
 	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), "SKILL.md")), Contents: buf.Bytes()}, nil
 }
 
+func (b codexBuilder) pathScopedRuleSkillPreview(resource model.Resource) (PreviewFile, error) {
+	contents, err := readSource(resource)
+	if err != nil {
+		return PreviewFile{}, err
+	}
+	rule := ruleconv.FromClaude(contents)
+	var buf bytes.Buffer
+	writeLine(&buf, "---")
+	writeLine(&buf, "name: %s", safeName(resource))
+	writeLine(&buf, "description: >-")
+	writeLine(&buf, "  %s", pathScopedRuleDescription(resource.ID, rule.Paths))
+	writeLine(&buf, "agent_canon:")
+	writeLine(&buf, "  source_tool: claude")
+	writeLine(&buf, "  source_kind: Rule")
+	writeLine(&buf, "  source_id: %s", resource.ID)
+	writeLine(&buf, "  source_scope: %s", resource.Scope)
+	writeLine(&buf, "  source_strategy: %s", resource.Strategy)
+	if len(rule.Paths) == 0 {
+		writeLine(&buf, "  source_paths: []")
+	} else {
+		writeLine(&buf, "  source_paths:")
+		for _, path := range rule.Paths {
+			writeLine(&buf, "    - %q", path)
+		}
+	}
+	writeLine(&buf, "---")
+	writeLine(&buf, "")
+	writeLine(&buf, "<!-- Generated Codex skill from Claude path-scoped rule %s. -->", resource.ID)
+	writeLine(&buf, "")
+	buf.Write(bytes.TrimSpace(redactSourceLines(rule.Body)))
+	writeLine(&buf, "")
+	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".agents", "skills", safeName(resource), "SKILL.md")), Contents: buf.Bytes()}, nil
+}
+
 func (b codexBuilder) agentPreview(resource model.Resource) PreviewFile {
 	var buf bytes.Buffer
 	writeLine(&buf, "# Generated Codex agent candidate from %s", resource.ID)
@@ -182,6 +229,13 @@ func (b codexBuilder) agentPreview(resource model.Resource) PreviewFile {
 	writeLine(&buf, "# kind = %q", resource.Kind)
 	writeLine(&buf, "# scope = %q", resource.Scope)
 	return PreviewFile{Path: filepath.ToSlash(filepath.Join(".codex", "agents", safeName(resource)+".toml")), Contents: buf.Bytes()}
+}
+
+func pathScopedRuleDescription(resourceID string, paths []string) string {
+	if len(paths) == 0 {
+		return "Use when this Claude path-scoped rule applies. Converted from Claude path-scoped rule " + resourceID + "."
+	}
+	return "Use when working with files matching " + strings.Join(paths, ", ") + ". Converted from Claude path-scoped rule " + resourceID + "."
 }
 
 func (b codexBuilder) configTOML() []byte {

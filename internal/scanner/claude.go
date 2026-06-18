@@ -34,9 +34,15 @@ func scanClaudeHome(claudeHome string, codexHome string, targets codexTargets) [
 				continue
 			}
 			status, strategy, warnings := ruleMigrationPlan(path)
-			resource := newResource("rule:global-"+slug(path), model.KindRule, model.ScopeGlobal, path, globalAgentsHint, status, strategy)
+			targetHint := globalAgentsHint
+			if strategy == "convert-path-scoped-rule-to-skill" {
+				targetHint = filepath.Join(globalSkillsRoot, slug(path), "SKILL.md")
+			}
+			resource := newResource("rule:global-"+slug(path), model.KindRule, model.ScopeGlobal, path, targetHint, status, strategy)
 			resource.Warnings = append(resource.Warnings, warnings...)
-			addCodexTargetWarning(&resource, targets.GlobalAgents)
+			if strategy != "convert-path-scoped-rule-to-skill" {
+				addCodexTargetWarning(&resource, targets.GlobalAgents)
+			}
 			resources = append(resources, resource)
 		}
 	}
@@ -230,11 +236,7 @@ func ruleMigrationPlan(path string) (model.Status, string, []model.Warning) {
 	if !hasPathScopedFrontmatter(path) {
 		return model.StatusCompatible, "merge-rule-into-agents-md", nil
 	}
-	warning := model.Warning{
-		Code:    "path-scoped-rule-review",
-		Message: "Claude rule uses paths frontmatter; review manually before placing it in an always-on Codex AGENTS.md file.",
-	}
-	return model.StatusPartial, "review-path-scoped-rule", []model.Warning{warning}
+	return model.StatusCompatible, "convert-path-scoped-rule-to-skill", nil
 }
 
 func hasPathScopedFrontmatter(path string) bool {

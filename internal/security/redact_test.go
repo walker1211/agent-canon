@@ -68,6 +68,18 @@ func TestRedactContentPreservesTokenMetricFields(t *testing.T) {
 	}
 }
 
+func TestRedactContentPreservesProseWithSecretWordsBeforeColon(t *testing.T) {
+	input := "- `scripts/secret-scan.sh --history` requires `actions/checkout` with `fetch-depth: 0`."
+
+	got, redacted := RedactContent(input)
+	if redacted {
+		t.Fatalf("RedactContent redacted = true, want false; got %q", got)
+	}
+	if got != input {
+		t.Fatalf("RedactContent = %q, want original %q", got, input)
+	}
+}
+
 func TestRedactIfSecretReplacesOnlySecretValues(t *testing.T) {
 	got, redacted := RedactIfSecret("GITHUB_TOKEN", "fixture-value")
 	if !redacted {
