@@ -121,10 +121,10 @@ func TestCompareIgnoresPluginAdaptationMetadata(t *testing.T) {
 	}
 }
 
-func TestCompareIgnoresAgentsAggregateTargetDriftWhenSourceContentIsUnchanged(t *testing.T) {
+func TestCompareIgnoresLegacyPathScopedRuleAggregateTargetDriftWhenSourceContentIsUnchanged(t *testing.T) {
 	baseClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", nil))
-	currentClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-rule", model.StatusPartial, "review-path-scoped-rule", nil))
-	currentCodex := snapshotReport("codex", stateWithPath("rule:global-go", model.KindRule, "codex", "/codex/AGENTS.md", "hash-agents", model.StatusPartial, "review-path-scoped-rule", nil))
+	currentClaude := snapshotReport("claude", stateWithPath("rule:global-go", model.KindRule, "claude", "/claude/rules/go.md", "hash-rule", model.StatusPartial, legacyReviewPathScopedRuleStrategy, nil))
+	currentCodex := snapshotReport("codex", stateWithPath("rule:global-go", model.KindRule, "codex", "/codex/AGENTS.md", "hash-agents", model.StatusPartial, legacyReviewPathScopedRuleStrategy, nil))
 
 	result := Compare(Input{BaseClaude: baseClaude, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
 
@@ -145,12 +145,12 @@ func TestCompareReportsAgentsAggregateDiffWhenSourceContentChanges(t *testing.T)
 	}
 }
 
-func TestCompareDoesNotConflictForReviewPathScopedRules(t *testing.T) {
+func TestCompareDoesNotConflictForLegacyReviewPathScopedRules(t *testing.T) {
 	warning := []model.Warning{{Code: "secret-redacted", Message: "redacted"}}
 	baseClaude := snapshotReport("claude", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "claude", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", warning))
 	baseCodex := snapshotReport("codex", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "codex", "hash-rule", model.StatusCompatible, "merge-rule-into-agents-md", nil))
-	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "claude", "hash-rule", model.StatusPartial, "review-path-scoped-rule", warning))
-	currentCodex := snapshotReport("codex", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "codex", "hash-agents", model.StatusPartial, "review-path-scoped-rule", nil))
+	currentClaude := snapshotReport("claude", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "claude", "hash-rule", model.StatusPartial, legacyReviewPathScopedRuleStrategy, warning))
+	currentCodex := snapshotReport("codex", stateWithKindAndStrategy("rule:global-github-actions", model.KindRule, "codex", "hash-agents", model.StatusPartial, legacyReviewPathScopedRuleStrategy, nil))
 
 	result := Compare(Input{BaseClaude: baseClaude, BaseCodex: baseCodex, CurrentClaude: currentClaude, CurrentCodex: currentCodex})
 

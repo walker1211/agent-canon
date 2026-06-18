@@ -2,12 +2,20 @@ package ruleconv
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 )
 
 type PathScopedRule struct {
 	Body  []byte
 	Paths []string
+}
+
+type CodexSkillMetadata struct {
+	Name           string
+	ResourceID     string
+	SourceScope    string
+	SourceStrategy string
 }
 
 func FromClaude(contents []byte) PathScopedRule {
@@ -35,6 +43,69 @@ func SemanticDocument(rule PathScopedRule) []byte {
 	buf.Write(bytes.TrimSpace(rule.Body))
 	buf.WriteByte('\n')
 	return buf.Bytes()
+}
+
+func CodexSkillDocument(rule PathScopedRule, meta CodexSkillMetadata) []byte {
+	var buf bytes.Buffer
+	writeLine(&buf, "---")
+	writeLine(&buf, "name: %s", meta.Name)
+	writeLine(&buf, "description: >-")
+	writeLine(&buf, "  %s", pathScopedRuleDescription(meta.ResourceID, rule.Paths))
+	writeLine(&buf, "agent_canon:")
+	writeLine(&buf, "  source_tool: claude")
+	writeLine(&buf, "  source_kind: Rule")
+	writeLine(&buf, "  source_id: %s", meta.ResourceID)
+	writeLine(&buf, "  source_scope: %s", meta.SourceScope)
+	writeLine(&buf, "  source_strategy: %s", meta.SourceStrategy)
+	if len(rule.Paths) == 0 {
+		writeLine(&buf, "  source_paths: []")
+	} else {
+		writeLine(&buf, "  source_paths:")
+		for _, path := range rule.Paths {
+			writeLine(&buf, "    - %q", path)
+		}
+	}
+	writeLine(&buf, "---")
+	writeLine(&buf, "")
+	writeLine(&buf, "<!-- Generated Codex skill from Claude path-scoped rule %s. -->", meta.ResourceID)
+	writeLine(&buf, "")
+	buf.Write(bytes.TrimSpace(rule.Body))
+	writeLine(&buf, "")
+	return buf.Bytes()
+}
+
+func ClaudeRuleDocument(rule PathScopedRule) []byte {
+	var buf bytes.Buffer
+	writeLine(&buf, "---")
+	if len(rule.Paths) == 0 {
+		writeLine(&buf, "paths: []")
+	} else {
+		writeLine(&buf, "paths:")
+		for _, path := range rule.Paths {
+			writeLine(&buf, "  - %q", path)
+		}
+	}
+	writeLine(&buf, "---")
+	writeLine(&buf, "")
+	buf.Write(bytes.TrimSpace(rule.Body))
+	writeLine(&buf, "")
+	return buf.Bytes()
+}
+
+func pathScopedRuleDescription(resourceID string, paths []string) string {
+	if len(paths) == 0 {
+		return "Use when this Claude path-scoped rule applies. Converted from Claude path-scoped rule " + resourceID + "."
+	}
+	return "Use when working with files matching " + strings.Join(paths, ", ") + ". Converted from Claude path-scoped rule " + resourceID + "."
+}
+
+func writeLine(buf *bytes.Buffer, format string, args ...any) {
+	if len(args) == 0 {
+		buf.WriteString(format)
+	} else {
+		fmt.Fprintf(buf, format, args...)
+	}
+	buf.WriteByte('\n')
 }
 
 func stripFrontmatter(contents []byte, pathsKey string) ([]byte, []string) {
